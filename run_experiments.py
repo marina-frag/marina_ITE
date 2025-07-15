@@ -166,9 +166,9 @@ def logits_probs_preds(ys_train, ys_val, ys_test, train_loader, val_loader, test
     return ys_train_logits, ys_val_logits, ys_test_logits, ys_train_probs, ys_val_probs, ys_test_probs, ys_train_pred, ys_val_pred, ys_test_pred
 
 
-within_boundaries_data_mouse3 = pd.read_csv(r"C:\Users\marin\Documents\ITE\PROJECT\data\mouse24617_withinBoundaries_15um-no_gap.csv")
+within_boundaries_data_mouse3 = pd.read_csv("data/mouse24617_withinBoundaries_15um-no_gap.csv")
 
-L4_neurons_per_Layer_data_mouse3 = pd.read_csv(r"C:\Users\marin\Documents\ITE\PROJECT\data\mouse24617_L4_neuronPerLayer_V1_0.01Hz.csv")
+L4_neurons_per_Layer_data_mouse3 = pd.read_csv("data/mouse24617_L4_neuronPerLayer_V1_0.01Hz.csv")
 
 temp_set1 = set(within_boundaries_data_mouse3["x"])
 temp_set2 = set(L4_neurons_per_Layer_data_mouse3["Neurons"])
@@ -178,7 +178,7 @@ temp_intersection1 = temp_set1.intersection(temp_set2)
 L4_neurons_per_Layer_within_boundaries_data_mouse3 = pd.DataFrame(sorted(temp_intersection1), columns=["Neuron_IDs"])
 
 
-L23_neurons_per_Layer_data_mouse3 = pd.read_csv(r"C:\Users\marin\Documents\ITE\PROJECT\data\mouse24617_L23_neuronPerLayer_V1_0.01Hz.csv")
+L23_neurons_per_Layer_data_mouse3 = pd.read_csv("data/mouse24617_L23_neuronPerLayer_V1_0.01Hz.csv")
 
 temp_set1 = set(within_boundaries_data_mouse3.iloc[:, 0])
 temp_set2 = set(L23_neurons_per_Layer_data_mouse3.iloc[:, 0])
@@ -195,7 +195,7 @@ L234_neurons_within_boundaries_data_mouse3 = pd.concat(
 )
 L234_neurons_within_boundaries_data_mouse3.columns = ["Neuron_IDs"]
 
-eventograms_15_dc_data_mouse3 = pd.read_csv(r"C:\Users\marin\Documents\ITE\PROJECT\data\mouse24617_IoannisThreshold_3nz_1.5dc_full_60min.csv")
+eventograms_15_dc_data_mouse3 = pd.read_csv("data/mouse24617_IoannisThreshold_3nz_1.5dc_full_60min.csv")
 
 
 allowed = set(L234_neurons_within_boundaries_data_mouse3["Neuron_IDs"])
