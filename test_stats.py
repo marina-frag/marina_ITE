@@ -4,10 +4,10 @@ import matplotlib.pyplot as plt
 import plot_utils as pu
 import os
 
-csv_path = r"C:/Users/marin/Documents/ITE/PROJECT/statistics/all_runs_summary.csv"
+csv_path = "statistics/all_runs_summary.csv"
 df = pd.read_csv(csv_path)
 
-output_path = r"C:/Users/marin/Documents/ITE/PROJECT/results"
+output_path = "results"
 os.makedirs(output_path, exist_ok=True)  # ensure output directory exists
 
 def plot_metric(metric_real, metric_null, metric_name, output_path):

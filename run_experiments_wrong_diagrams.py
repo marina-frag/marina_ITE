@@ -1,5 +1,4 @@
 # cmd.exe /c run_experiments.bat
-# chmod +x run_experiments.sh and ./run_experiments.sh
 import pandas as pd
 from IPython.display import display
 import matplotlib.pyplot as plt
@@ -502,25 +501,25 @@ for hidden_size in args.hidden_sizes:
                     x     = np.arange(len(metrics_names))
                     width = 0.15
 
-                    # plt.figure(figsize=(14, 6))
-                    # # real model bars
-                    # plt.bar(x - 1.5*width, train_vals,      width, label="Train",      color=orig_colors[0])
-                    # plt.bar(x - 0.5*width, val_vals,        width, label="Val",        color=orig_colors[1])
-                    # plt.bar(x + 0.5*width, test_vals,       width, label="Test",       color=orig_colors[2])
-                    # # null model bars (with alpha)
-                    # plt.bar(x + 1.5*width, null_train_vals, width, label="Null Train", color=null_colors[0], alpha=0.7)
-                    # plt.bar(x + 2.5*width, null_val_vals,   width, label="Null Val",   color=null_colors[1], alpha=0.7)
-                    # plt.bar(x + 3.5*width, null_test_vals,  width, label="Null Test",  color=null_colors[2], alpha=0.7)
+                    plt.figure(figsize=(14, 6))
+                    # real model bars
+                    plt.bar(x - 1.5*width, train_vals,      width, label="Train",      color=orig_colors[0])
+                    plt.bar(x - 0.5*width, val_vals,        width, label="Val",        color=orig_colors[1])
+                    plt.bar(x + 0.5*width, test_vals,       width, label="Test",       color=orig_colors[2])
+                    # null model bars (with alpha)
+                    plt.bar(x + 1.5*width, null_train_vals, width, label="Null Train", color=null_colors[0], alpha=0.7)
+                    plt.bar(x + 2.5*width, null_val_vals,   width, label="Null Val",   color=null_colors[1], alpha=0.7)
+                    plt.bar(x + 3.5*width, null_test_vals,  width, label="Null Test",  color=null_colors[2], alpha=0.7)
 
-                    # plt.xticks(x + width, metrics_names, rotation=15)
-                    # plt.ylabel("Score")
-                    # plt.title("Classification Metrics by Split: Real vs. Null")
-                    # plt.legend(fontsize=10, ncol=2)
-                    # plt.grid(axis="y", linestyle="--", alpha=0.7)
-                    # plt.tight_layout()
-                    # #plt.show()
-                    # plt.savefig(os.path.join(out_dir, "metrics_bar.png"))
-                    # plt.close()
+                    plt.xticks(x + width, metrics_names, rotation=15)
+                    plt.ylabel("Score")
+                    plt.title("Classification Metrics by Split: Real vs. Null")
+                    plt.legend(fontsize=10, ncol=2)
+                    plt.grid(axis="y", linestyle="--", alpha=0.7)
+                    plt.tight_layout()
+                    #plt.show()
+                    plt.savefig(os.path.join(out_dir, "metrics_bar.png"))
+                    plt.close()
                     df_metrics = pd.DataFrame({
                     "split":      ["Train","Val","Test","Null Train","Null Val","Null Test"],
                             "Accuracy":   [*train_metrics[0:1], *val_metrics[0:1], *test_metrics[0:1],
