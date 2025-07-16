@@ -209,38 +209,38 @@ def sequences_to_tensors(Xs_train, ys_train, Xs_val, ys_val, Xs_test, ys_test, X
 
 def plot_learning_curves(train_losses, val_losses, final_test_loss,
                          null_train_losses, null_val_losses, null_final_test_loss, out_dir):
-    
-    # Original palette (blues)
-    orig_colors = sns.color_palette("Blues", 3)
+    return
+    # # Original palette (blues)
+    # orig_colors = sns.color_palette("Blues", 3)
 
-    # Null palette: sample 5 from YlOrBr, then take the first 3 (yellow→light orange)
-    null_colors = sns.color_palette("YlOrBr", 5)[:3]
+    # # Null palette: sample 5 from YlOrBr, then take the first 3 (yellow→light orange)
+    # null_colors = sns.color_palette("YlOrBr", 5)[:3]
 
-    plt.figure(figsize=(12, 6))
+    # plt.figure(figsize=(12, 6))
 
-    # ─── Original model (all solid) ───
-    plt.plot(train_losses, label='Train', color=orig_colors[0], linewidth=2, linestyle='-')
-    plt.plot(val_losses,   label='Val',   color=orig_colors[1], linewidth=2, linestyle='-')
-    plt.hlines(final_test_loss, 0, num_epochs-1,
-            label=f'Test = {final_test_loss:.3f}',
-            colors=[orig_colors[2]], linestyles='-', linewidth=2)
+    # # ─── Original model (all solid) ───
+    # plt.plot(train_losses, label='Train', color=orig_colors[0], linewidth=2, linestyle='-')
+    # plt.plot(val_losses,   label='Val',   color=orig_colors[1], linewidth=2, linestyle='-')
+    # plt.hlines(final_test_loss, 0, num_epochs-1,
+    #         label=f'Test = {final_test_loss:.3f}',
+    #         colors=[orig_colors[2]], linestyles='-', linewidth=2)
 
-    # ─── Null model (all solid) ───
-    plt.plot(null_train_losses, label='Null Train', color=null_colors[0], linewidth=2, linestyle='-')
-    plt.plot(null_val_losses,   label='Null Val',   color=null_colors[1], linewidth=2, linestyle='-')
-    plt.hlines(null_final_test_loss, 0, num_epochs-1,
-            label=f'Null Test = {null_final_test_loss:.3f}',
-            colors=[null_colors[2]], linestyles='-', linewidth=2)
+    # # ─── Null model (all solid) ───
+    # plt.plot(null_train_losses, label='Null Train', color=null_colors[0], linewidth=2, linestyle='-')
+    # plt.plot(null_val_losses,   label='Null Val',   color=null_colors[1], linewidth=2, linestyle='-')
+    # plt.hlines(null_final_test_loss, 0, num_epochs-1,
+    #         label=f'Null Test = {null_final_test_loss:.3f}',
+    #         colors=[null_colors[2]], linestyles='-', linewidth=2)
 
-    plt.xlabel("Epoch", fontsize=14)
-    plt.ylabel("Loss",  fontsize=14)
-    plt.title("Learning Curves: Original vs. Null Models")
-    plt.legend(fontsize=12)
-    plt.grid(True)
-    plt.tight_layout()
-    #plt.show()
-    plt.savefig(os.path.join(out_dir, "average_loss.png"))
-    plt.close()
+    # plt.xlabel("Epoch", fontsize=14)
+    # plt.ylabel("Loss",  fontsize=14)
+    # plt.title("Learning Curves: Original vs. Null Models")
+    # plt.legend(fontsize=12)
+    # plt.grid(True)
+    # plt.tight_layout()
+    # #plt.show()
+    # plt.savefig(os.path.join(out_dir, "average_loss.png"))
+    # plt.close()
 
 def keep_metrics(ys_train, ys_val, ys_test, train_loader, val_loader, test_loader,
                  ys_train_null, ys_val_null, ys_test_null, train_loader_null, val_loader_null, test_loader_null, out_dir, run_name, model, device):
@@ -514,7 +514,7 @@ ms_per_frame_mouse3 = time_in_sec_mouse3 * 1000 / (num_of_frames_mouse3)
 num_of_neurons_l4 = len(l4_ids)
 num_of_neurons_l23 = len(l23_ids)
 num_of_frames = num_of_frames_mouse3
-batch_size = 1024
+batch_size = 256
 num_layers = 1
 # #----------------------
 # lookback = 5
