@@ -305,31 +305,43 @@ def keep_metrics(ys_train, ys_val, ys_test, train_loader, val_loader, test_loade
     print(f"Finished {run_name}")
 
 #>>loop function
-def train_and_evaluate(hidden_size, lookback, neuron, num_epochs, learning_rate, run_counter):
+def train_and_evaluate(eventograms_L23, eventograms_L4, num_of_neurons_l4, hidden_size, lookback, neuron, num_epochs, learning_rate, device, out_root): # run_counter, total_runs, out_root):
 
-    run_counter += 1
-    print(
-        f"Running test {run_counter}/{total_runs}: "
-        f"hidden_size={hidden_size}, "
-        f"lookback={lookback}, "
-        f"neuron={neuron}, "
-        f"epochs={num_epochs}, "
-        f"lr={learning_rate}"
-    )
+    #run_counter += 1
+    # print(
+    #     f"Running test {run_counter}/{total_runs}: "
+    #     f"hidden_size={hidden_size}, "
+    #     f"lookback={lookback}, "
+    #     f"neuron={neuron}, "
+    #     f"epochs={num_epochs}, "
+    #     f"lr={learning_rate}"
+    # )
+    print(f"Running test: "
+          f"hidden_size={hidden_size}, "
+            f"lookback={lookback}, "
+            f"neuron={neuron}, "
+            f"epochs={num_epochs}, "
+            f"lr={learning_rate}"
+        )
 
     run_name = (f"hs{hidden_size}_lb{lookback}_"
                 f"{neuron}_ep{num_epochs}_lr{learning_rate}")
-    out_dir  = os.path.join(args.out_root, run_name)
+    out_dir  = os.path.join(out_root, run_name)
 
     # —————————— Νεος κώδικας για καθαρό φάκελο ——————————
     if os.path.isdir(out_dir):
         shutil.rmtree(out_dir)
     os.makedirs(out_dir)
     # count ones in all of eventograms_L4_15_dc_data_mouse3[[neuron]]
-    count_ones = eventograms_L23_15_dc_data_mouse3[[neuron]].sum().values[0]
-    print(f"Count of ones in {neuron}: {count_ones} / {len(eventograms_L23_15_dc_data_mouse3)} or {count_ones / len(eventograms_L23_15_dc_data_mouse3) * 100:.2f}%")
+    # count_ones = eventograms_L23_15_dc_data_mouse3[[neuron]].sum().values[0]
+    count_ones = eventograms_L23[[neuron]].sum().values[0]
+    #print(f"Count of ones in {neuron}: {count_ones} / {len(eventograms_L23_15_dc_data_mouse3)} or {count_ones / len(eventograms_L23_15_dc_data_mouse3) * 100:.2f}%")
 
-    df = pd.concat([ eventograms_L23_15_dc_data_mouse3[[neuron]], eventograms_L4_15_dc_data_mouse3], axis=1)
+    print(f"Count of ones in {neuron}: {count_ones} / {len(eventograms_L23)} or {count_ones / len(eventograms_L23) * 100:.2f}%")
+
+    #df = pd.concat([ eventograms_L23_15_dc_data_mouse3[[neuron]], eventograms_L4_15_dc_data_mouse3], axis=1)
+    df = pd.concat([ eventograms_L23[[neuron]], eventograms_L4], axis=1)
+
     print(df.shape)  # should be (23070, 1193) for L23 and should be (23070, 2670) for L4
     X = df
     y = df[neuron]
@@ -493,12 +505,13 @@ l23_cols = [f"V{nid}" for nid in l23_ids if f"V{nid}" in eventograms_L234_15_dc_
 eventograms_L4_15_dc_data_mouse3  = eventograms_L234_15_dc_data_mouse3[l4_cols].copy()
 eventograms_L23_15_dc_data_mouse3 = eventograms_L234_15_dc_data_mouse3[l23_cols].copy()
 
+num_of_neurons_l4 = len(l4_ids)
+num_of_neurons_l23 = len(l23_ids)
 
 # Setting up the device for PyTorch
 device = my_cuda()
 
-num_of_neurons_l4 = len(l4_ids)
-num_of_neurons_l23 = len(l23_ids)
+
 
 
 #>>parameters<<<
@@ -532,22 +545,43 @@ parser.add_argument("--lr",           nargs="+", type=float, default=[0.001])
 parser.add_argument("--out_root",     type=str,   default="results")
 args = parser.parse_args()
 
-# ─── prepare run counter ─────────────────────────────────────────────────────────
-total_runs = (
-    len(args.hidden_sizes)
-  * len(args.lookbacks)
-  * len(l23_ids)
-  * len(args.epochs)
-  * len(args.lr)
-)
+# multithreding code 
+
+# Ορίζουμε πόσοι workers
+NUM_WORKERS = max(os.cpu_count() - 1, 1)
 
 #loop
 for hidden_size in args.hidden_sizes:
     for lookback in args.lookbacks:
-        for nid in l23_ids:
-            neuron = "V" + str(nid)
-            for num_epochs in args.epochs:
-                for learning_rate in args.lr:
-                    run_counter = 0
-                    train_and_evaluate(hidden_size, lookback, neuron, num_epochs, learning_rate, run_counter)
+        for num_epochs in args.epochs:
+            for learning_rate in args.lr:
+                desc = (f"hs={hidden_size} lb={lookback} "
+                        f"ep={num_epochs} lr={learning_rate}")
+                
+                # φτιάχνουμε τα partials για κάθε νευρώνα
+                jobs = []
+                for nid in l23_ids:
+                    neuron = f"V{nid}"
+                    job = partial(
+                        train_and_evaluate,
+                        eventograms_L23 = eventograms_L23_15_dc_data_mouse3,
+                        eventograms_L4  = eventograms_L4_15_dc_data_mouse3,
+                        num_of_neurons_l4  = num_of_neurons_l4,
+                        hidden_size     = hidden_size,
+                        lookback        = lookback,
+                        neuron          = neuron,
+                        num_epochs      = num_epochs,
+                        learning_rate   = learning_rate,
+                        device          = device,
+                        out_root        = args.out_root
+                    )
+                    jobs.append(job)
 
+                # parallel map με tqdm
+                with ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
+                    # executor.map θα τρέξει τα job() για κάθε νευρώνα
+                    for _ in tqdm(executor.map(lambda fn: fn(), jobs),
+                                  total=len(jobs),
+                                  desc=desc,
+                                  unit="neuron"):
+                        pass
