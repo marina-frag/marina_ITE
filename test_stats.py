@@ -60,7 +60,7 @@ def plot_metric(metric_real, metric_null, metric_name, split, output_path):
     ax.xaxis.set_major_locator(plt.MaxNLocator(3))
     ax.yaxis.set_major_locator(plt.MaxNLocator(5))
     legend_colors = ['blue', 'gray'] if metric_null is not None else ['blue']
-    pu.configure_legend(ax, colors=legend_colors, font_size=30)
+    pu.configure_legend(ax, colors=legend_colors, font_size=30, pos=(0.5, 1.025))
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close(fig)
