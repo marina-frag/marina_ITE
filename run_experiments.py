@@ -1,5 +1,10 @@
 # cmd.exe /c run_experiments.bat
 # chmod +x run_experiments.sh and ./run_experiments.sh
+
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
+
+
 import pandas as pd
 from IPython.display import display
 import matplotlib.pyplot as plt
@@ -67,7 +72,7 @@ def circular_shift_df(dt):
     return dt_.to_numpy()
 
 
-def train_one_epoch(epoch, loader):
+def train_one_epoch(epoch, loader, model, optimizer, criterion, device):
     model.train()
     total_loss = 0
     for xb, yb in loader:
@@ -83,7 +88,7 @@ def train_one_epoch(epoch, loader):
     return avg
 
 
-def val_test_one_epoch(loader):
+def val_test_one_epoch(loader, model, criterion, device):
     model.eval()
     total_loss = 0
     with torch.no_grad():
@@ -111,7 +116,7 @@ def compute_metrics(y_true, y_pred, y_probs):
     return acc, prec, rec, spec, f1, ap, auc
 
 
-def logits_probs_preds(ys_train, ys_val, ys_test, train_loader, val_loader, test_loader):
+def logits_probs_preds(ys_train, ys_val, ys_test, train_loader, val_loader, test_loader, model, device):
     
     ys_train_true = ys_train
     ys_val_true = ys_val
@@ -165,7 +170,280 @@ def logits_probs_preds(ys_train, ys_val, ys_test, train_loader, val_loader, test
 
     return ys_train_logits, ys_val_logits, ys_test_logits, ys_train_probs, ys_val_probs, ys_test_probs, ys_train_pred, ys_val_pred, ys_test_pred
 
+def create_datasets(Xs_train, ys_train, Xs_val, ys_val, Xs_test, ys_test, Xs_null_train, Xs_null_val, Xs_null_test):
+    train_dataset = TensorDataset(Xs_train, ys_train)
+    train_loader = DataLoader(train_dataset, batch_size, shuffle=False)
 
+    val_dataset = TensorDataset(Xs_val, ys_val)
+    val_loader = DataLoader(val_dataset, batch_size, shuffle=False)
+
+    test_dataset = TensorDataset(Xs_test, ys_test)
+    test_loader = DataLoader(test_dataset, batch_size, shuffle=False)
+
+    train_dataset_null = TensorDataset(Xs_null_train, ys_train)
+    train_loader_null = DataLoader(train_dataset_null, batch_size, shuffle=True)
+
+    val_dataset_null = TensorDataset(Xs_null_val, ys_val)
+    val_loader_null = DataLoader(val_dataset_null, batch_size, shuffle=False)
+
+    test_dataset_null = TensorDataset(Xs_null_test, ys_test)
+    test_loader_null = DataLoader(test_dataset_null, batch_size, shuffle=False)
+    return train_loader, val_loader, test_loader, train_loader_null, val_loader_null, test_loader_null
+
+def sequences_to_tensors(Xs_train, ys_train, Xs_val, ys_val, Xs_test, ys_test, Xs_null_train, Xs_null_val, Xs_null_test):
+    Xs_train = torch.tensor(Xs_train, dtype=torch.float32)
+    ys_train = torch.tensor(ys_train, dtype=torch.float32).unsqueeze(1)
+
+    Xs_val = torch.tensor(Xs_val, dtype=torch.float32)
+    ys_val = torch.tensor(ys_val, dtype=torch.float32).unsqueeze(1)
+
+    Xs_test = torch.tensor(Xs_test, dtype=torch.float32)
+    ys_test = torch.tensor(ys_test, dtype=torch.float32).unsqueeze(1)
+
+    Xs_null_train = torch.tensor(Xs_null_train, dtype=torch.float32)
+
+    Xs_null_val = torch.tensor(Xs_null_val, dtype=torch.float32)
+
+    Xs_null_test = torch.tensor(Xs_null_test, dtype=torch.float32)
+    return Xs_train, ys_train, Xs_val, ys_val, Xs_test, ys_test, Xs_null_train, Xs_null_val, Xs_null_test
+
+def plot_learning_curves(train_losses, val_losses, final_test_loss,
+                         null_train_losses, null_val_losses, null_final_test_loss, out_dir):
+    
+    # Original palette (blues)
+    orig_colors = sns.color_palette("Blues", 3)
+
+    # Null palette: sample 5 from YlOrBr, then take the first 3 (yellow→light orange)
+    null_colors = sns.color_palette("YlOrBr", 5)[:3]
+
+    plt.figure(figsize=(12, 6))
+
+    # ─── Original model (all solid) ───
+    plt.plot(train_losses, label='Train', color=orig_colors[0], linewidth=2, linestyle='-')
+    plt.plot(val_losses,   label='Val',   color=orig_colors[1], linewidth=2, linestyle='-')
+    plt.hlines(final_test_loss, 0, num_epochs-1,
+            label=f'Test = {final_test_loss:.3f}',
+            colors=[orig_colors[2]], linestyles='-', linewidth=2)
+
+    # ─── Null model (all solid) ───
+    plt.plot(null_train_losses, label='Null Train', color=null_colors[0], linewidth=2, linestyle='-')
+    plt.plot(null_val_losses,   label='Null Val',   color=null_colors[1], linewidth=2, linestyle='-')
+    plt.hlines(null_final_test_loss, 0, num_epochs-1,
+            label=f'Null Test = {null_final_test_loss:.3f}',
+            colors=[null_colors[2]], linestyles='-', linewidth=2)
+
+    plt.xlabel("Epoch", fontsize=14)
+    plt.ylabel("Loss",  fontsize=14)
+    plt.title("Learning Curves: Original vs. Null Models")
+    plt.legend(fontsize=12)
+    plt.grid(True)
+    plt.tight_layout()
+    #plt.show()
+    plt.savefig(os.path.join(out_dir, "average_loss.png"))
+    plt.close()
+
+def keep_metrics(ys_train, ys_val, ys_test, train_loader, val_loader, test_loader,
+                 ys_train_null, ys_val_null, ys_test_null, train_loader_null, val_loader_null, test_loader_null, out_dir, run_name, model, device):
+    ys_train_true = ys_train
+    ys_val_true = ys_val
+    ys_test_true = ys_test
+
+    ys_train_logits, ys_val_logits, ys_test_logits, ys_train_probs, ys_val_probs, ys_test_probs, ys_train_pred, ys_val_pred, ys_test_pred = logits_probs_preds(ys_train, ys_val, ys_test, train_loader, val_loader, test_loader, model, device)
+    ys_train_logits_null, ys_val_logits_null, ys_test_logits_null, ys_train_probs_null, ys_val_probs_null, ys_test_probs_null, ys_train_pred_null, ys_val_pred_null, ys_test_pred_null = logits_probs_preds(ys_train, ys_val, ys_test, train_loader_null, val_loader_null, test_loader_null, model, device)
+
+    train_metrics      = compute_metrics(ys_train_true,      ys_train_pred,      ys_train_probs)
+    val_metrics        = compute_metrics(ys_val_true,        ys_val_pred,        ys_val_probs)
+    test_metrics       = compute_metrics(ys_test_true,       ys_test_pred,       ys_test_probs)
+    null_train_metrics = compute_metrics(ys_train_true, ys_train_pred_null, ys_train_probs_null)
+    null_val_metrics   = compute_metrics(ys_val_true,   ys_val_pred_null,   ys_val_probs_null)
+    null_test_metrics  = compute_metrics(ys_test_true,  ys_test_pred_null,  ys_test_probs_null)
+
+    metrics_names = ["Accuracy", "Precision", "Recall", "Specificity", "F1", "AP", "ROC AUC"]
+
+    train_vals      = train_metrics
+    val_vals        = val_metrics
+    test_vals       = test_metrics
+    null_train_vals = null_train_metrics
+    null_val_vals   = null_val_metrics
+    null_test_vals  = null_test_metrics
+
+    x     = np.arange(len(metrics_names))
+    width = 0.15
+
+
+    df_metrics = pd.DataFrame({
+    "split":      ["Train","Val","Test","Null Train","Null Val","Null Test"],
+            "Accuracy":   [*train_metrics[0:1], *val_metrics[0:1], *test_metrics[0:1],
+                        *null_train_metrics[0:1], *null_val_metrics[0:1], *null_test_metrics[0:1]],
+            "Precision":  [train_metrics[1], val_metrics[1], test_metrics[1],
+                        null_train_metrics[1], null_val_metrics[1], null_test_metrics[1]],
+            "Recall":     [train_metrics[2], val_metrics[2], test_metrics[2],
+                        null_train_metrics[2], null_val_metrics[2], null_test_metrics[2]],
+            "Specificity":[train_metrics[3], val_metrics[3], test_metrics[3],
+                        null_train_metrics[3], null_val_metrics[3], null_test_metrics[3]],
+            "F1":         [train_metrics[4], val_metrics[4], test_metrics[4],
+                        null_train_metrics[4], null_val_metrics[4], null_test_metrics[4]],
+            "AP":         [train_metrics[5], val_metrics[5], test_metrics[5],
+                        null_train_metrics[5], null_val_metrics[5], null_test_metrics[5]],
+            "ROC AUC":    [train_metrics[6], val_metrics[6], test_metrics[6],
+                        null_train_metrics[6], null_val_metrics[6], null_test_metrics[6]],
+        })
+    df_metrics.to_csv(os.path.join(out_dir, "metrics_table.csv"), index=False)
+    # 1) Read or initialize the master summary file
+    summary_path = os.path.join(args.out_root, "all_runs_summary.csv")
+    if not os.path.exists(summary_path):
+        # write header
+        with open(summary_path, "w") as f:
+            f.write("run,split,Accuracy,Precision,Recall,Specificity,F1,AP,ROC AUC\n")
+
+    # 2) Append this run’s metrics_table.csv into the master summary
+    metrics_table = pd.read_csv(os.path.join(out_dir, "metrics_table.csv"))
+    # prepend a column for the run name
+    metrics_table.insert(0, "run", run_name)
+    # append to all_runs_summary.csv
+    metrics_table.to_csv(summary_path, mode="a", header=False, index=False)
+    print(f"Finished {run_name}")
+
+#>>loop function
+def train_and_evaluate(eventograms_L23, eventograms_L4, num_of_neurons_l4, hidden_size, lookback, neuron, num_epochs, learning_rate, device, out_root): # run_counter, total_runs, out_root):
+
+    print(f"Running test: "
+          f"hidden_size={hidden_size}, "
+            f"lookback={lookback}, "
+            f"neuron={neuron}, "
+            f"epochs={num_epochs}, "
+            f"lr={learning_rate}"
+        )
+
+    run_name = (f"hs{hidden_size}_lb{lookback}_"
+                f"{neuron}_ep{num_epochs}_lr{learning_rate}")
+    out_dir  = os.path.join(out_root, run_name)
+
+    # —————————— Νεος κώδικας για καθαρό φάκελο ——————————
+    if os.path.isdir(out_dir):
+        shutil.rmtree(out_dir)
+    os.makedirs(out_dir)
+    # count ones in all of eventograms_L4_15_dc_data_mouse3[[neuron]]
+    
+    count_ones = eventograms_L23[[neuron]].sum().values[0]
+
+    print(f"Count of ones in {neuron}: {count_ones} / {len(eventograms_L23)} or {count_ones / len(eventograms_L23) * 100:.2f}%")
+
+    df = pd.concat([ eventograms_L23[[neuron]], eventograms_L4], axis=1)
+
+    print(df.shape)  # should be (23070, 1193) for L23 and should be (23070, 2670) for L4
+    X = df
+    y = df[neuron]
+
+    X_null = circular_shift_df(X)
+
+    train_frac = 0.80
+    val_frac   = 0.15
+    #test_frac = 0.05
+    test_frac  = 1 - train_frac - val_frac  # = 0.05
+
+    N = len(X)
+    train_end = int(N * train_frac)               # π.χ. 0.80*N
+    val_end   = int(N * (train_frac + val_frac))  # π.χ. 0.95*N
+
+    X_train = X[:train_end]
+    X_val   = X[train_end:val_end]
+    X_test  = X[val_end:]
+
+    y_train = y[:train_end]
+    y_val   = y[train_end:val_end]
+    y_test  = y[val_end:]
+
+
+    Xs_train, ys_train = create_sequences(X_train, y_train, lookback)
+    Xs_val, ys_val = create_sequences(X_val, y_val, lookback)
+    Xs_test, ys_test = create_sequences(X_test, y_test, lookback)
+    #(for Xs_train.shape 23070 is all frames we use train_fac * 23070 so 18456 frames as training)
+
+    X_null_train = X_null[:train_end]
+    X_null_val   = X_null[train_end:val_end]
+    X_null_test  = X_null[val_end:]
+
+
+    Xs_null_train, ys_train = create_sequences(X_null_train, y_train, lookback)
+    Xs_null_val, ys_val = create_sequences(X_null_val, y_val, lookback)
+    Xs_null_test, ys_test = create_sequences(X_null_test, y_test, lookback)
+
+
+    Xs_train, ys_train, Xs_val, ys_val, Xs_test, ys_test, Xs_null_train, Xs_null_val, Xs_null_test = sequences_to_tensors(
+        Xs_train, ys_train, Xs_val, ys_val, Xs_test, ys_test, Xs_null_train, Xs_null_val, Xs_null_test
+    )   
+
+
+    train_loader, val_loader, test_loader, train_loader_null, val_loader_null, test_loader_null = create_datasets(
+        Xs_train, ys_train, Xs_val, ys_val, Xs_test, ys_test, Xs_null_train, Xs_null_val, Xs_null_test)
+    
+    for _, batch in enumerate(train_loader):
+        x_batch, y_batch = batch[0].to(device), batch[1].to(device)
+        print(x_batch.shape, y_batch.shape)
+        break  # Just show the first batch
+
+    class LSTMNetwork(nn.Module):
+        def __init__(self, input_size=num_of_neurons_l4+1, hidden_size= hidden_size, num_layers=num_layers, output_size=1):
+            super(LSTMNetwork, self).__init__()
+            self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
+            self.fc   = nn.Linear(hidden_size, output_size)
+
+        def forward(self, x):
+            out, _ = self.lstm(x)
+            out = out[:, -1, :]
+            logits = self.fc(out)
+            return logits               # raw scores (“logits”)
+    model = LSTMNetwork().to(device)
+
+    #criterion = nn.BCEWithLogitsLoss() # internally applies sigmoid + BCELoss
+
+    eps = 1e-5
+    # num_of_frames - count_ones gives negatives; count_ones + eps avoids division by zero
+    pos_weights = torch.tensor(
+        (num_of_frames - count_ones) / (count_ones + eps),
+        dtype=torch.float32,
+        device=device
+    )
+
+    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weights)
+
+
+    #criterion = nn.MSELoss()
+
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    display(model)  
+
+
+
+    # >>run
+
+    train_losses, val_losses = [], []
+    for epoch in range(num_epochs):
+        train_losses.append(train_one_epoch(epoch, train_loader, model, optimizer, criterion, device))
+        val_losses.append(val_test_one_epoch(val_loader, model, criterion, device))
+    final_test_loss = val_test_one_epoch(test_loader, model, criterion, device)
+
+
+    null_train_losses, null_val_losses = [], []
+    for epoch in range(num_epochs):
+        null_train_losses.append(train_one_epoch(epoch, train_loader_null, model, optimizer, criterion, device))
+        null_val_losses.append(val_test_one_epoch(val_loader_null, model, criterion, device))
+    null_final_test_loss = val_test_one_epoch(test_loader_null, model, criterion, device)
+
+    #>>stop
+    plot_learning_curves(train_losses, val_losses, final_test_loss,
+                         null_train_losses, null_val_losses, null_final_test_loss, out_dir
+                         )
+    return keep_metrics(
+        ys_train, ys_val, ys_test, train_loader, val_loader, test_loader,
+        ys_train, ys_val, ys_test, train_loader_null, val_loader_null, test_loader_null,
+        out_dir, run_name, model, device
+    )
+
+
+#main
+#load data
 within_boundaries_data_mouse3 = pd.read_csv("../data/mouse24617_withinBoundaries_15um-no_gap.csv")
 
 L4_neurons_per_Layer_data_mouse3 = pd.read_csv("../data/mouse24617_L4_neuronPerLayer_V1_0.01Hz.csv")
@@ -216,12 +494,13 @@ l23_cols = [f"V{nid}" for nid in l23_ids if f"V{nid}" in eventograms_L234_15_dc_
 eventograms_L4_15_dc_data_mouse3  = eventograms_L234_15_dc_data_mouse3[l4_cols].copy()
 eventograms_L23_15_dc_data_mouse3 = eventograms_L234_15_dc_data_mouse3[l23_cols].copy()
 
+num_of_neurons_l4 = len(l4_ids)
+num_of_neurons_l23 = len(l23_ids)
 
 # Setting up the device for PyTorch
 device = my_cuda()
 
-num_of_neurons_l4 = len(l4_ids)
-num_of_neurons_l23 = len(l23_ids)
+
 
 
 #>>parameters<<<
@@ -255,301 +534,43 @@ parser.add_argument("--lr",           nargs="+", type=float, default=[0.001])
 parser.add_argument("--out_root",     type=str,   default="results")
 args = parser.parse_args()
 
-# ─── prepare run counter ─────────────────────────────────────────────────────────
-total_runs = (
-    len(args.hidden_sizes)
-  * len(args.lookbacks)
-  * len(l23_ids)
-  * len(args.epochs)
-  * len(args.lr)
-)
-run_counter = 0
-#>>loop
+# multithreding code 
 
-# ─── 3) Sweep over hyper-params ────────────────────────────────────────────────
+# Ορίζουμε πόσοι workers
+NUM_WORKERS = max(os.cpu_count() - 1, 1)
+
+#loop
 for hidden_size in args.hidden_sizes:
     for lookback in args.lookbacks:
-        for nid in l23_ids:
-            neuron = "V" + str(nid)
-            for num_epochs in args.epochs:
-                for learning_rate in args.lr:
-
-                    run_counter += 1
-                    print(
-                        f"Running test {run_counter}/{total_runs}: "
-                        f"hidden_size={hidden_size}, "
-                        f"lookback={lookback}, "
-                        f"neuron={neuron}, "
-                        f"epochs={num_epochs}, "
-                        f"lr={learning_rate}"
+        for num_epochs in args.epochs:
+            for learning_rate in args.lr:
+                desc = (f"hs={hidden_size} lb={lookback} "
+                        f"ep={num_epochs} lr={learning_rate}")
+                
+                # φτιάχνουμε τα partials για κάθε νευρώνα
+                jobs = []
+                for nid in l23_ids:
+                    neuron = f"V{nid}"
+                    job = partial(
+                        train_and_evaluate,
+                        eventograms_L23 = eventograms_L23_15_dc_data_mouse3,
+                        eventograms_L4  = eventograms_L4_15_dc_data_mouse3,
+                        num_of_neurons_l4  = num_of_neurons_l4,
+                        hidden_size     = hidden_size,
+                        lookback        = lookback,
+                        neuron          = neuron,
+                        num_epochs      = num_epochs,
+                        learning_rate   = learning_rate,
+                        device          = device,
+                        out_root        = args.out_root
                     )
-
-                    run_name = (f"hs{hidden_size}_lb{lookback}_"
-                                f"{neuron}_ep{num_epochs}_lr{learning_rate}")
-                    out_dir  = os.path.join(args.out_root, run_name)
-
-                    # —————————— Νεος κώδικας για καθαρό φάκελο ——————————
-                    if os.path.isdir(out_dir):
-                        shutil.rmtree(out_dir)
-                    os.makedirs(out_dir)
-                    # count ones in all of eventograms_L4_15_dc_data_mouse3[[neuron]]
-                    count_ones = eventograms_L23_15_dc_data_mouse3[[neuron]].sum().values[0]
-                    print(f"Count of ones in {neuron}: {count_ones} / {len(eventograms_L23_15_dc_data_mouse3)} or {count_ones / len(eventograms_L23_15_dc_data_mouse3) * 100:.2f}%")
-
-                    df = pd.concat([ eventograms_L23_15_dc_data_mouse3[[neuron]], eventograms_L4_15_dc_data_mouse3], axis=1)
-                    print(df.shape)  # should be (23070, 1193) for L23 and should be (23070, 2670) for L4
-                    #display(df)
-
-                    #from sklearn.model_selection import train_test_split
-                    #openpyxl
-
-
-                    X = df
-                    y = df[neuron]
-
-
-
-                    X_null = circular_shift_df(X)
-
-
-
-                    train_frac = 0.80
-                    val_frac   = 0.15
-                    #test_frac = 0.05
-                    test_frac  = 1 - train_frac - val_frac  # = 0.05
-
-                    N = len(X)
-                    train_end = int(N * train_frac)               # π.χ. 0.80*N
-                    val_end   = int(N * (train_frac + val_frac))  # π.χ. 0.95*N
-
-                    X_train = X[:train_end]
-                    X_val   = X[train_end:val_end]
-                    X_test  = X[val_end:]
-
-                    y_train = y[:train_end]
-                    y_val   = y[train_end:val_end]
-                    y_test  = y[val_end:]
-
-                    # print(X_train.shape, X_val.shape, X_test.shape,
-                    #       y_train.shape, y_val.shape, y_test.shape)
-
-                    Xs_train, ys_train = create_sequences(X_train, y_train, lookback)
-                    Xs_val, ys_val = create_sequences(X_val, y_val, lookback)
-                    Xs_test, ys_test = create_sequences(X_test, y_test, lookback)
-                    #(for Xs_train.shape 23070 is all frames we use train_fac * 23070 so 18456 frames as training)
-
-                    X_null_train = X_null[:train_end]
-                    X_null_val   = X_null[train_end:val_end]
-                    X_null_test  = X_null[val_end:]
-
-
-                    Xs_null_train, ys_train = create_sequences(X_null_train, y_train, lookback)
-                    Xs_null_val, ys_val = create_sequences(X_null_val, y_val, lookback)
-                    Xs_null_test, ys_test = create_sequences(X_null_test, y_test, lookback)
-
-
-                    Xs_train = torch.tensor(Xs_train, dtype=torch.float32)
-                    ys_train = torch.tensor(ys_train, dtype=torch.float32).unsqueeze(1)
-
-                    Xs_val = torch.tensor(Xs_val, dtype=torch.float32)
-                    ys_val = torch.tensor(ys_val, dtype=torch.float32).unsqueeze(1)
-
-                    Xs_test = torch.tensor(Xs_test, dtype=torch.float32)
-                    ys_test = torch.tensor(ys_test, dtype=torch.float32).unsqueeze(1)
-
-                    Xs_null_train = torch.tensor(Xs_null_train, dtype=torch.float32)
-
-                    Xs_null_val = torch.tensor(Xs_null_val, dtype=torch.float32)
-
-                    Xs_null_test = torch.tensor(Xs_null_test, dtype=torch.float32)
-
-
-                    train_dataset = TensorDataset(Xs_train, ys_train)
-                    train_loader = DataLoader(train_dataset, batch_size, shuffle=False)
-
-                    val_dataset = TensorDataset(Xs_val, ys_val)
-                    val_loader = DataLoader(val_dataset, batch_size, shuffle=False)
-
-                    test_dataset = TensorDataset(Xs_test, ys_test)
-                    test_loader = DataLoader(test_dataset, batch_size, shuffle=False)
-
-                    for _, batch in enumerate(train_loader):
-                        x_batch, y_batch = batch[0].to(device), batch[1].to(device)
-                        print(x_batch.shape, y_batch.shape)
-                        break  # Just show the first batch
-
-                    class LSTMNetwork(nn.Module):
-                        def __init__(self, input_size=num_of_neurons_l4+1, hidden_size= hidden_size, num_layers=num_layers, output_size=1):
-                            super(LSTMNetwork, self).__init__()
-                            self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
-                            self.fc   = nn.Linear(hidden_size, output_size)
-
-                        def forward(self, x):
-                            out, _ = self.lstm(x)
-                            out = out[:, -1, :]
-                            logits = self.fc(out)
-                            return logits               # raw scores (“logits”)
-                    model = LSTMNetwork().to(device)
-
-                    #criterion = nn.BCEWithLogitsLoss() # internally applies sigmoid + BCELoss
-
-                    eps = 1e-5
-                    # num_of_frames - count_ones gives negatives; count_ones + eps avoids division by zero
-                    pos_weights = torch.tensor(
-                        (num_of_frames - count_ones) / (count_ones + eps),
-                        dtype=torch.float32,
-                        device=device
-                    )
-
-                    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weights)
-
-
-                    #criterion = nn.MSELoss()
-
-                    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-                    display(model)  
-
-
-
-                    # >>run
-
-                    train_losses, val_losses = [], []
-                    for epoch in range(num_epochs):
-                        train_losses.append(train_one_epoch(epoch, train_loader))
-                        val_losses.append(val_test_one_epoch(val_loader))
-                    final_test_loss = val_test_one_epoch(test_loader)
-
-
-                    train_dataset_null = TensorDataset(Xs_null_train, ys_train)
-                    train_loader_null = DataLoader(train_dataset_null, batch_size, shuffle=True)
-
-                    val_dataset_null = TensorDataset(Xs_null_val, ys_val)
-                    val_loader_null = DataLoader(val_dataset_null, batch_size, shuffle=False)
-
-                    test_dataset_null = TensorDataset(Xs_null_test, ys_test)
-                    test_loader_null = DataLoader(test_dataset_null, batch_size, shuffle=False)
-
-
-
-                    null_train_losses, null_val_losses = [], []
-                    for epoch in range(num_epochs):
-                        null_train_losses.append(train_one_epoch(epoch, train_loader_null))
-                        null_val_losses.append(val_test_one_epoch(val_loader_null))
-                    null_final_test_loss = val_test_one_epoch(test_loader_null)
-
-                    #>>stop
-
-                    # Original palette (blues)
-                    orig_colors = sns.color_palette("Blues", 3)
-
-                    # Null palette: sample 5 from YlOrBr, then take the first 3 (yellow→light orange)
-                    null_colors = sns.color_palette("YlOrBr", 5)[:3]
-
-                    plt.figure(figsize=(12, 6))
-
-                    # ─── Original model (all solid) ───
-                    plt.plot(train_losses, label='Train', color=orig_colors[0], linewidth=2, linestyle='-')
-                    plt.plot(val_losses,   label='Val',   color=orig_colors[1], linewidth=2, linestyle='-')
-                    plt.hlines(final_test_loss, 0, num_epochs-1,
-                            label=f'Test = {final_test_loss:.3f}',
-                            colors=[orig_colors[2]], linestyles='-', linewidth=2)
-
-                    # ─── Null model (all solid) ───
-                    plt.plot(null_train_losses, label='Null Train', color=null_colors[0], linewidth=2, linestyle='-')
-                    plt.plot(null_val_losses,   label='Null Val',   color=null_colors[1], linewidth=2, linestyle='-')
-                    plt.hlines(null_final_test_loss, 0, num_epochs-1,
-                            label=f'Null Test = {null_final_test_loss:.3f}',
-                            colors=[null_colors[2]], linestyles='-', linewidth=2)
-
-                    plt.xlabel("Epoch", fontsize=14)
-                    plt.ylabel("Loss",  fontsize=14)
-                    plt.title("Learning Curves: Original vs. Null Models")
-                    plt.legend(fontsize=12)
-                    plt.grid(True)
-                    plt.tight_layout()
-                    #plt.show()
-                    plt.savefig(os.path.join(out_dir, "average_loss.png"))
-                    plt.close()
-
-                    ys_train_true = ys_train
-                    ys_val_true = ys_val
-                    ys_test_true = ys_test
-
-                    ys_train_logits, ys_val_logits, ys_test_logits, ys_train_probs, ys_val_probs, ys_test_probs, ys_train_pred, ys_val_pred, ys_test_pred = logits_probs_preds(ys_train, ys_val, ys_test, train_loader, val_loader, test_loader)
-                    ys_train_logits_null, ys_val_logits_null, ys_test_logits_null, ys_train_probs_null, ys_val_probs_null, ys_test_probs_null, ys_train_pred_null, ys_val_pred_null, ys_test_pred_null = logits_probs_preds(ys_train, ys_val, ys_test, train_loader_null, val_loader_null, test_loader_null)
-
-                    # >>run2
-
-                    train_metrics      = compute_metrics(ys_train_true,      ys_train_pred,      ys_train_probs)
-                    val_metrics        = compute_metrics(ys_val_true,        ys_val_pred,        ys_val_probs)
-                    test_metrics       = compute_metrics(ys_test_true,       ys_test_pred,       ys_test_probs)
-                    null_train_metrics = compute_metrics(ys_train_true, ys_train_pred_null, ys_train_probs_null)
-                    null_val_metrics   = compute_metrics(ys_val_true,   ys_val_pred_null,   ys_val_probs_null)
-                    null_test_metrics  = compute_metrics(ys_test_true,  ys_test_pred_null,  ys_test_probs_null)
-
-                    metrics_names = ["Accuracy", "Precision", "Recall", "Specificity", "F1", "AP", "ROC AUC"]
-
-        
-                    # ─── 4) Bar chart of scalar metrics ────────────────────────────────────────────
-                    # unpack metrics tuples into lists
-                    train_vals      = train_metrics
-                    val_vals        = val_metrics
-                    test_vals       = test_metrics
-                    null_train_vals = null_train_metrics
-                    null_val_vals   = null_val_metrics
-                    null_test_vals  = null_test_metrics
-
-                    x     = np.arange(len(metrics_names))
-                    width = 0.15
-
-                    # plt.figure(figsize=(14, 6))
-                    # # real model bars
-                    # plt.bar(x - 1.5*width, train_vals,      width, label="Train",      color=orig_colors[0])
-                    # plt.bar(x - 0.5*width, val_vals,        width, label="Val",        color=orig_colors[1])
-                    # plt.bar(x + 0.5*width, test_vals,       width, label="Test",       color=orig_colors[2])
-                    # # null model bars (with alpha)
-                    # plt.bar(x + 1.5*width, null_train_vals, width, label="Null Train", color=null_colors[0], alpha=0.7)
-                    # plt.bar(x + 2.5*width, null_val_vals,   width, label="Null Val",   color=null_colors[1], alpha=0.7)
-                    # plt.bar(x + 3.5*width, null_test_vals,  width, label="Null Test",  color=null_colors[2], alpha=0.7)
-
-                    # plt.xticks(x + width, metrics_names, rotation=15)
-                    # plt.ylabel("Score")
-                    # plt.title("Classification Metrics by Split: Real vs. Null")
-                    # plt.legend(fontsize=10, ncol=2)
-                    # plt.grid(axis="y", linestyle="--", alpha=0.7)
-                    # plt.tight_layout()
-                    # #plt.show()
-                    # plt.savefig(os.path.join(out_dir, "metrics_bar.png"))
-                    # plt.close()
-                    df_metrics = pd.DataFrame({
-                    "split":      ["Train","Val","Test","Null Train","Null Val","Null Test"],
-                            "Accuracy":   [*train_metrics[0:1], *val_metrics[0:1], *test_metrics[0:1],
-                                           *null_train_metrics[0:1], *null_val_metrics[0:1], *null_test_metrics[0:1]],
-                            "Precision":  [train_metrics[1], val_metrics[1], test_metrics[1],
-                                           null_train_metrics[1], null_val_metrics[1], null_test_metrics[1]],
-                            "Recall":     [train_metrics[2], val_metrics[2], test_metrics[2],
-                                           null_train_metrics[2], null_val_metrics[2], null_test_metrics[2]],
-                            "Specificity":[train_metrics[3], val_metrics[3], test_metrics[3],
-                                           null_train_metrics[3], null_val_metrics[3], null_test_metrics[3]],
-                            "F1":         [train_metrics[4], val_metrics[4], test_metrics[4],
-                                           null_train_metrics[4], null_val_metrics[4], null_test_metrics[4]],
-                            "AP":         [train_metrics[5], val_metrics[5], test_metrics[5],
-                                           null_train_metrics[5], null_val_metrics[5], null_test_metrics[5]],
-                            "ROC AUC":    [train_metrics[6], val_metrics[6], test_metrics[6],
-                                           null_train_metrics[6], null_val_metrics[6], null_test_metrics[6]],
-                        })
-                    df_metrics.to_csv(os.path.join(out_dir, "metrics_table.csv"), index=False)
-                    # 1) Read or initialize the master summary file
-                    summary_path = os.path.join(args.out_root, "all_runs_summary.csv")
-                    if not os.path.exists(summary_path):
-                        # write header
-                        with open(summary_path, "w") as f:
-                            f.write("run,split,Accuracy,Precision,Recall,Specificity,F1,AP,ROC AUC\n")
-
-                    # 2) Append this run’s metrics_table.csv into the master summary
-                    metrics_table = pd.read_csv(os.path.join(out_dir, "metrics_table.csv"))
-                    # prepend a column for the run name
-                    metrics_table.insert(0, "run", run_name)
-                    # append to all_runs_summary.csv
-                    metrics_table.to_csv(summary_path, mode="a", header=False, index=False)
-                    print(f"Finished {run_name}")
+                    jobs.append(job)
+
+                # parallel map με tqdm
+                with ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
+                    # executor.map θα τρέξει τα job() για κάθε νευρώνα
+                    for _ in tqdm(executor.map(lambda fn: fn(), jobs),
+                                  total=len(jobs),
+                                  desc=desc,
+                                  unit="neuron"):
+                        pass

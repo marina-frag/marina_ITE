@@ -1,9 +1,9 @@
 @echo on
 
 python run_experiments.py ^
-  --hidden_sizes 128 ^
+  --hidden_sizes 16 ^
   --lookbacks    1 ^
-  --epochs       15 ^
+  --epochs       5 ^
   --lr           0.001 ^
   --out_root     results
 
