@@ -307,15 +307,6 @@ def keep_metrics(ys_train, ys_val, ys_test, train_loader, val_loader, test_loade
 #>>loop function
 def train_and_evaluate(eventograms_L23, eventograms_L4, num_of_neurons_l4, hidden_size, lookback, neuron, num_epochs, learning_rate, device, out_root): # run_counter, total_runs, out_root):
 
-    #run_counter += 1
-    # print(
-    #     f"Running test {run_counter}/{total_runs}: "
-    #     f"hidden_size={hidden_size}, "
-    #     f"lookback={lookback}, "
-    #     f"neuron={neuron}, "
-    #     f"epochs={num_epochs}, "
-    #     f"lr={learning_rate}"
-    # )
     print(f"Running test: "
           f"hidden_size={hidden_size}, "
             f"lookback={lookback}, "
@@ -333,13 +324,11 @@ def train_and_evaluate(eventograms_L23, eventograms_L4, num_of_neurons_l4, hidde
         shutil.rmtree(out_dir)
     os.makedirs(out_dir)
     # count ones in all of eventograms_L4_15_dc_data_mouse3[[neuron]]
-    # count_ones = eventograms_L23_15_dc_data_mouse3[[neuron]].sum().values[0]
+    
     count_ones = eventograms_L23[[neuron]].sum().values[0]
-    #print(f"Count of ones in {neuron}: {count_ones} / {len(eventograms_L23_15_dc_data_mouse3)} or {count_ones / len(eventograms_L23_15_dc_data_mouse3) * 100:.2f}%")
 
     print(f"Count of ones in {neuron}: {count_ones} / {len(eventograms_L23)} or {count_ones / len(eventograms_L23) * 100:.2f}%")
 
-    #df = pd.concat([ eventograms_L23_15_dc_data_mouse3[[neuron]], eventograms_L4_15_dc_data_mouse3], axis=1)
     df = pd.concat([ eventograms_L23[[neuron]], eventograms_L4], axis=1)
 
     print(df.shape)  # should be (23070, 1193) for L23 and should be (23070, 2670) for L4
