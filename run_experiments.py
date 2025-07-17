@@ -1,9 +1,10 @@
 # cmd.exe /c run_experiments.bat
 # chmod +x run_experiments.sh and ./run_experiments.sh
-import matplotlib
-matplotlib.use('Agg')
+
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
+
+
 import pandas as pd
 from IPython.display import display
 import matplotlib.pyplot as plt
@@ -158,9 +159,9 @@ def logits_probs_preds(ys_train, ys_val, ys_test, train_loader, val_loader, test
     #print("Best Val F1 threshold:", best_threshold, "→ F1:", f1_scores[best_idx])
 
     # # βάλε το threshold σου στο επόμενο βήμα
-    # threshold = best_threshold
+    threshold = best_threshold
         
-    threshold = 0.5
+    #threshold = 0.5
 
     # (Optional) 5) Hard 0/1 preds at threshold 0.5
     ys_train_pred = (ys_train_probs > threshold).astype(int)
@@ -208,38 +209,38 @@ def sequences_to_tensors(Xs_train, ys_train, Xs_val, ys_val, Xs_test, ys_test, X
 
 def plot_learning_curves(train_losses, val_losses, final_test_loss,
                          null_train_losses, null_val_losses, null_final_test_loss, out_dir):
-    
-    # Original palette (blues)
-    orig_colors = sns.color_palette("Blues", 3)
+    return
+    # # Original palette (blues)
+    # orig_colors = sns.color_palette("Blues", 3)
 
-    # Null palette: sample 5 from YlOrBr, then take the first 3 (yellow→light orange)
-    null_colors = sns.color_palette("YlOrBr", 5)[:3]
+    # # Null palette: sample 5 from YlOrBr, then take the first 3 (yellow→light orange)
+    # null_colors = sns.color_palette("YlOrBr", 5)[:3]
 
-    plt.figure(figsize=(12, 6))
+    # plt.figure(figsize=(12, 6))
 
-    # ─── Original model (all solid) ───
-    plt.plot(train_losses, label='Train', color=orig_colors[0], linewidth=2, linestyle='-')
-    plt.plot(val_losses,   label='Val',   color=orig_colors[1], linewidth=2, linestyle='-')
-    plt.hlines(final_test_loss, 0, num_epochs-1,
-            label=f'Test = {final_test_loss:.3f}',
-            colors=[orig_colors[2]], linestyles='-', linewidth=2)
+    # # ─── Original model (all solid) ───
+    # plt.plot(train_losses, label='Train', color=orig_colors[0], linewidth=2, linestyle='-')
+    # plt.plot(val_losses,   label='Val',   color=orig_colors[1], linewidth=2, linestyle='-')
+    # plt.hlines(final_test_loss, 0, num_epochs-1,
+    #         label=f'Test = {final_test_loss:.3f}',
+    #         colors=[orig_colors[2]], linestyles='-', linewidth=2)
 
-    # ─── Null model (all solid) ───
-    plt.plot(null_train_losses, label='Null Train', color=null_colors[0], linewidth=2, linestyle='-')
-    plt.plot(null_val_losses,   label='Null Val',   color=null_colors[1], linewidth=2, linestyle='-')
-    plt.hlines(null_final_test_loss, 0, num_epochs-1,
-            label=f'Null Test = {null_final_test_loss:.3f}',
-            colors=[null_colors[2]], linestyles='-', linewidth=2)
+    # # ─── Null model (all solid) ───
+    # plt.plot(null_train_losses, label='Null Train', color=null_colors[0], linewidth=2, linestyle='-')
+    # plt.plot(null_val_losses,   label='Null Val',   color=null_colors[1], linewidth=2, linestyle='-')
+    # plt.hlines(null_final_test_loss, 0, num_epochs-1,
+    #         label=f'Null Test = {null_final_test_loss:.3f}',
+    #         colors=[null_colors[2]], linestyles='-', linewidth=2)
 
-    plt.xlabel("Epoch", fontsize=14)
-    plt.ylabel("Loss",  fontsize=14)
-    plt.title("Learning Curves: Original vs. Null Models")
-    plt.legend(fontsize=12)
-    plt.grid(True)
-    plt.tight_layout()
-    #plt.show()
-    plt.savefig(os.path.join(out_dir, "average_loss.png"))
-    plt.close()
+    # plt.xlabel("Epoch", fontsize=14)
+    # plt.ylabel("Loss",  fontsize=14)
+    # plt.title("Learning Curves: Original vs. Null Models")
+    # plt.legend(fontsize=12)
+    # plt.grid(True)
+    # plt.tight_layout()
+    # #plt.show()
+    # plt.savefig(os.path.join(out_dir, "average_loss.png"))
+    # plt.close()
 
 def keep_metrics(ys_train, ys_val, ys_test, train_loader, val_loader, test_loader,
                  ys_train_null, ys_val_null, ys_test_null, train_loader_null, val_loader_null, test_loader_null, out_dir, run_name, model, device):
@@ -413,7 +414,7 @@ def train_and_evaluate(eventograms_L23, eventograms_L4, num_of_neurons_l4, hidde
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     display(model)  
 
-    
+
 
     # >>run
 
@@ -421,7 +422,9 @@ def train_and_evaluate(eventograms_L23, eventograms_L4, num_of_neurons_l4, hidde
     best_val_loss = float('inf')
     epochs_no_improve = 0
     for epoch in range(num_epochs):
-<<<<<<< Updated upstream
+    #     train_losses.append(train_one_epoch(epoch, train_loader, model, optimizer, criterion, device))
+    #     val_losses.append(val_test_one_epoch(val_loader, model, criterion, device))
+    # final_test_loss = val_test_one_epoch(test_loader, model, criterion, device)
         # 1) Train
         train_loss = train_one_epoch(epoch, train_loader, model, optimizer, criterion, device)
         train_losses.append(train_loss)
@@ -430,12 +433,6 @@ def train_and_evaluate(eventograms_L23, eventograms_L4, num_of_neurons_l4, hidde
         val_loss = val_test_one_epoch(val_loader, model, criterion, device)
         val_losses.append(val_loss)
 
-=======
-        train_loss = train_one_epoch(epoch, train_loader, model, optimizer, criterion, device)
-        train_losses.append(train_loss)
-        val_loss = val_test_one_epoch(val_loader, model, criterion, device)
-        val_losses.append(val_loss)
->>>>>>> Stashed changes
         # 3) Check early stopping condition
         if val_loss < best_val_loss:
             best_val_loss = val_loss
@@ -449,45 +446,20 @@ def train_and_evaluate(eventograms_L23, eventograms_L4, num_of_neurons_l4, hidde
         if epochs_no_improve >= patience:
             print(f"Early stopping at epoch {epoch+1}. Best val loss: {best_val_loss:.5f}")
             break
-<<<<<<< Updated upstream
 
     # 4) After stopping, you can load the best model before final test:
-=======
->>>>>>> Stashed changes
     model.load_state_dict(torch.load(os.path.join(out_dir, 'best_model.pt')))
     final_test_loss = val_test_one_epoch(test_loader, model, criterion, device)
 
-        # … after loading best original model and computing final_test_loss …
 
-<<<<<<< Updated upstream
-    best_null_val_loss = float('inf')
-    epochs_no_improve_null = 0
     null_train_losses, null_val_losses = [], []
     for epoch in range(num_epochs):
-        # 1) Train on null data
-        null_train_loss = train_one_epoch(
-            epoch, train_loader_null, model, optimizer, criterion, device
-        )
+               # 1) Train on null data
+        null_train_loss = train_one_epoch(epoch, train_loader_null, model, optimizer, criterion, device)
         null_train_losses.append(null_train_loss)
 
-=======
-    # ——— Null‐model training with Early Stopping ———
-    null_train_losses, null_val_losses = [], []
-    best_null_val_loss = float('inf')
-    epochs_no_improve_null = 0
-
-    for epoch in range(num_epochs):
-        # 1) Train on null data
-        null_train_loss = train_one_epoch(
-            epoch, train_loader_null, model, optimizer, criterion, device
-        )
-        null_train_losses.append(null_train_loss)
-
->>>>>>> Stashed changes
         # 2) Validate on null data
-        null_val_loss = val_test_one_epoch(
-            val_loader_null, model, criterion, device
-        )
+        null_val_loss = val_test_one_epoch(val_loader_null, model, criterion, device)
         null_val_losses.append(null_val_loss)
 
         # 3) Early‐Stopping check
@@ -514,18 +486,11 @@ def train_and_evaluate(eventograms_L23, eventograms_L4, num_of_neurons_l4, hidde
     model.load_state_dict(
         torch.load(os.path.join(out_dir, 'best_model_null.pt'))
     )
-    null_final_test_loss = val_test_one_epoch(
-        test_loader_null, model, criterion, device
-    )
-<<<<<<< Updated upstream
-=======
+    null_final_test_loss = val_test_one_epoch(test_loader_null, model, criterion, device)
 
-    
->>>>>>> Stashed changes
     #>>stop
     plot_learning_curves(train_losses, val_losses, final_test_loss,
-                         null_train_losses, null_val_losses, null_final_test_loss, out_dir
-                         )
+                         null_train_losses, null_val_losses, null_final_test_loss, out_dir)                         )
     return keep_metrics(
         ys_train, ys_val, ys_test, train_loader, val_loader, test_loader,
         ys_train, ys_val, ys_test, train_loader_null, val_loader_null, test_loader_null,
@@ -592,6 +557,8 @@ num_of_neurons_l23 = len(l23_ids)
 device = my_cuda()
 
 
+
+
 #>>parameters<<<
 np.random.seed(42)
 frame_start_mouse3 = 26919
@@ -603,7 +570,7 @@ ms_per_frame_mouse3 = time_in_sec_mouse3 * 1000 / (num_of_frames_mouse3)
 num_of_neurons_l4 = len(l4_ids)
 num_of_neurons_l23 = len(l23_ids)
 num_of_frames = num_of_frames_mouse3
-batch_size = 32
+batch_size = 64
 num_layers = 1
 # Ορίζουμε πόσοι workers
 NUM_WORKERS = max(os.cpu_count() - 1, 1)
@@ -617,10 +584,10 @@ num_epochs = 100
 # num_epochs = 100
 # #--------------------------
 parser = argparse.ArgumentParser()
-parser.add_argument("--hidden_sizes", nargs="+", type=int, default=[8])
-parser.add_argument("--lookbacks",    nargs="+", type=int, default=[1])
+parser.add_argument("--hidden_sizes", nargs="+", type=int, default=[32])
+parser.add_argument("--lookbacks",    nargs="+", type=int, default=[32])
 # parser.add_argument("--neurons",      nargs="+", type=str,default=["V8192"])
-# parser.add_argument("--epochs",       nargs="+", type=int, default=[50])
+parser.add_argument("--epochs",       nargs="+", type=int, default=[8])
 parser.add_argument("--lr",           nargs="+", type=float, default=[0.001])
 # parser.add_argument("--batch_sizes",   type=int,   default=1024)
 parser.add_argument("--out_root",     type=str,   default="results")
@@ -628,18 +595,14 @@ args = parser.parse_args()
 
 # multithreding code 
 
-<<<<<<< Updated upstream
-=======
-# Ορίζουμε πόσοι workers
-NUM_WORKERS = max(os.cpu_count() - 1, 1)
-num_epochs = 100
->>>>>>> Stashed changes
+
 
 #loop
 for hidden_size in args.hidden_sizes:
     for lookback in args.lookbacks:
         for learning_rate in args.lr:
-            desc = (f"hs={hidden_size} lb={lookback} lr={learning_rate}")
+            desc = (f"hs={hidden_size} lb={lookback} "
+                    f"ep={num_epochs} lr={learning_rate}")
             
             # φτιάχνουμε τα partials για κάθε νευρώνα
             jobs = []
