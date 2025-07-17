@@ -1,10 +1,9 @@
 # cmd.exe /c run_experiments.bat
 # chmod +x run_experiments.sh and ./run_experiments.sh
-
+import matplotlib
+matplotlib.use('Agg')
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
-
-
 import pandas as pd
 from IPython.display import display
 import matplotlib.pyplot as plt
@@ -414,7 +413,7 @@ def train_and_evaluate(eventograms_L23, eventograms_L4, num_of_neurons_l4, hidde
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     display(model)  
 
-
+    
 
     # >>run
 
@@ -422,6 +421,7 @@ def train_and_evaluate(eventograms_L23, eventograms_L4, num_of_neurons_l4, hidde
     best_val_loss = float('inf')
     epochs_no_improve = 0
     for epoch in range(num_epochs):
+<<<<<<< Updated upstream
         # 1) Train
         train_loss = train_one_epoch(epoch, train_loader, model, optimizer, criterion, device)
         train_losses.append(train_loss)
@@ -430,6 +430,12 @@ def train_and_evaluate(eventograms_L23, eventograms_L4, num_of_neurons_l4, hidde
         val_loss = val_test_one_epoch(val_loader, model, criterion, device)
         val_losses.append(val_loss)
 
+=======
+        train_loss = train_one_epoch(epoch, train_loader, model, optimizer, criterion, device)
+        train_losses.append(train_loss)
+        val_loss = val_test_one_epoch(val_loader, model, criterion, device)
+        val_losses.append(val_loss)
+>>>>>>> Stashed changes
         # 3) Check early stopping condition
         if val_loss < best_val_loss:
             best_val_loss = val_loss
@@ -443,12 +449,17 @@ def train_and_evaluate(eventograms_L23, eventograms_L4, num_of_neurons_l4, hidde
         if epochs_no_improve >= patience:
             print(f"Early stopping at epoch {epoch+1}. Best val loss: {best_val_loss:.5f}")
             break
+<<<<<<< Updated upstream
 
     # 4) After stopping, you can load the best model before final test:
+=======
+>>>>>>> Stashed changes
     model.load_state_dict(torch.load(os.path.join(out_dir, 'best_model.pt')))
     final_test_loss = val_test_one_epoch(test_loader, model, criterion, device)
 
+        # … after loading best original model and computing final_test_loss …
 
+<<<<<<< Updated upstream
     best_null_val_loss = float('inf')
     epochs_no_improve_null = 0
     null_train_losses, null_val_losses = [], []
@@ -459,6 +470,20 @@ def train_and_evaluate(eventograms_L23, eventograms_L4, num_of_neurons_l4, hidde
         )
         null_train_losses.append(null_train_loss)
 
+=======
+    # ——— Null‐model training with Early Stopping ———
+    null_train_losses, null_val_losses = [], []
+    best_null_val_loss = float('inf')
+    epochs_no_improve_null = 0
+
+    for epoch in range(num_epochs):
+        # 1) Train on null data
+        null_train_loss = train_one_epoch(
+            epoch, train_loader_null, model, optimizer, criterion, device
+        )
+        null_train_losses.append(null_train_loss)
+
+>>>>>>> Stashed changes
         # 2) Validate on null data
         null_val_loss = val_test_one_epoch(
             val_loader_null, model, criterion, device
@@ -492,6 +517,11 @@ def train_and_evaluate(eventograms_L23, eventograms_L4, num_of_neurons_l4, hidde
     null_final_test_loss = val_test_one_epoch(
         test_loader_null, model, criterion, device
     )
+<<<<<<< Updated upstream
+=======
+
+    
+>>>>>>> Stashed changes
     #>>stop
     plot_learning_curves(train_losses, val_losses, final_test_loss,
                          null_train_losses, null_val_losses, null_final_test_loss, out_dir
@@ -562,8 +592,6 @@ num_of_neurons_l23 = len(l23_ids)
 device = my_cuda()
 
 
-
-
 #>>parameters<<<
 np.random.seed(42)
 frame_start_mouse3 = 26919
@@ -592,7 +620,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--hidden_sizes", nargs="+", type=int, default=[8])
 parser.add_argument("--lookbacks",    nargs="+", type=int, default=[1])
 # parser.add_argument("--neurons",      nargs="+", type=str,default=["V8192"])
-parser.add_argument("--epochs",       nargs="+", type=int, default=[50])
+# parser.add_argument("--epochs",       nargs="+", type=int, default=[50])
 parser.add_argument("--lr",           nargs="+", type=float, default=[0.001])
 # parser.add_argument("--batch_sizes",   type=int,   default=1024)
 parser.add_argument("--out_root",     type=str,   default="results")
@@ -600,6 +628,12 @@ args = parser.parse_args()
 
 # multithreding code 
 
+<<<<<<< Updated upstream
+=======
+# Ορίζουμε πόσοι workers
+NUM_WORKERS = max(os.cpu_count() - 1, 1)
+num_epochs = 100
+>>>>>>> Stashed changes
 
 #loop
 for hidden_size in args.hidden_sizes:

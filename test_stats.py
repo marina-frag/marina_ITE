@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import plot_utils as pu
 import os
 
-csv_path = "statistics/all_runs_summary.csv"
+csv_path = "statistics/all_runs_summary_aws_hs32_ep5_lr0.001_1542.csv"
 df = pd.read_csv(csv_path)
 
 output_path = "results"
