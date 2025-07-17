@@ -234,7 +234,7 @@ ms_per_frame_mouse3 = time_in_sec_mouse3 * 1000 / (num_of_frames_mouse3)
 num_of_neurons_l4 = len(l4_ids)
 num_of_neurons_l23 = len(l23_ids)
 num_of_frames = num_of_frames_mouse3
-batch_size = 1024
+batch_size = 64
 num_layers = 1
 # #----------------------
 # lookback = 5

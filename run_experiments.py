@@ -159,9 +159,9 @@ def logits_probs_preds(ys_train, ys_val, ys_test, train_loader, val_loader, test
     #print("Best Val F1 threshold:", best_threshold, "→ F1:", f1_scores[best_idx])
 
     # # βάλε το threshold σου στο επόμενο βήμα
-    # threshold = best_threshold
+    threshold = best_threshold
         
-    threshold = 0.5
+    #threshold = 0.5
 
     # (Optional) 5) Hard 0/1 preds at threshold 0.5
     ys_train_pred = (ys_train_probs > threshold).astype(int)
@@ -514,7 +514,7 @@ ms_per_frame_mouse3 = time_in_sec_mouse3 * 1000 / (num_of_frames_mouse3)
 num_of_neurons_l4 = len(l4_ids)
 num_of_neurons_l23 = len(l23_ids)
 num_of_frames = num_of_frames_mouse3
-batch_size = 256
+batch_size = 64
 num_layers = 1
 # #----------------------
 # lookback = 5
@@ -525,10 +525,10 @@ num_layers = 1
 # num_epochs = 100
 # #--------------------------
 parser = argparse.ArgumentParser()
-parser.add_argument("--hidden_sizes", nargs="+", type=int, default=[8])
-parser.add_argument("--lookbacks",    nargs="+", type=int, default=[1])
+parser.add_argument("--hidden_sizes", nargs="+", type=int, default=[32])
+parser.add_argument("--lookbacks",    nargs="+", type=int, default=[32])
 # parser.add_argument("--neurons",      nargs="+", type=str,default=["V8192"])
-parser.add_argument("--epochs",       nargs="+", type=int, default=[50])
+parser.add_argument("--epochs",       nargs="+", type=int, default=[8])
 parser.add_argument("--lr",           nargs="+", type=float, default=[0.001])
 # parser.add_argument("--batch_sizes",   type=int,   default=1024)
 parser.add_argument("--out_root",     type=str,   default="results")
