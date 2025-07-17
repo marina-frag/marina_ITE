@@ -305,7 +305,7 @@ def keep_metrics(ys_train, ys_val, ys_test, train_loader, val_loader, test_loade
     print(f"Finished {run_name}")
 
 #>>loop function
-def train_and_evaluate(eventograms_L23, eventograms_L4, num_of_neurons_l4, hidden_size, lookback, neuron, num_epochs, learning_rate, device, out_root): # run_counter, total_runs, out_root):
+def train_and_evaluate(eventograms_L23, eventograms_L4, num_of_neurons_l4, hidden_size, lookback, neuron, num_epochs, learning_rate, device, out_root, patience=5): # run_counter, total_runs, out_root):
 
     print(f"Running test: "
           f"hidden_size={hidden_size}, "
@@ -419,18 +419,79 @@ def train_and_evaluate(eventograms_L23, eventograms_L4, num_of_neurons_l4, hidde
     # >>run
 
     train_losses, val_losses = [], []
+    best_val_loss = float('inf')
+    epochs_no_improve = 0
     for epoch in range(num_epochs):
-        train_losses.append(train_one_epoch(epoch, train_loader, model, optimizer, criterion, device))
-        val_losses.append(val_test_one_epoch(val_loader, model, criterion, device))
+        # 1) Train
+        train_loss = train_one_epoch(epoch, train_loader, model, optimizer, criterion, device)
+        train_losses.append(train_loss)
+
+        # 2) Validate
+        val_loss = val_test_one_epoch(val_loader, model, criterion, device)
+        val_losses.append(val_loss)
+
+        # 3) Check early stopping condition
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            epochs_no_improve = 0
+            # (Optional) Save a checkpoint of the best model
+            torch.save(model.state_dict(), os.path.join(out_dir, 'best_model.pt'))
+        else:
+            epochs_no_improve += 1
+            print(f"  ↳ No improvement for {epochs_no_improve} epoch(s).")
+
+        if epochs_no_improve >= patience:
+            print(f"Early stopping at epoch {epoch+1}. Best val loss: {best_val_loss:.5f}")
+            break
+
+    # 4) After stopping, you can load the best model before final test:
+    model.load_state_dict(torch.load(os.path.join(out_dir, 'best_model.pt')))
     final_test_loss = val_test_one_epoch(test_loader, model, criterion, device)
 
 
+    best_null_val_loss = float('inf')
+    epochs_no_improve_null = 0
     null_train_losses, null_val_losses = [], []
     for epoch in range(num_epochs):
-        null_train_losses.append(train_one_epoch(epoch, train_loader_null, model, optimizer, criterion, device))
-        null_val_losses.append(val_test_one_epoch(val_loader_null, model, criterion, device))
-    null_final_test_loss = val_test_one_epoch(test_loader_null, model, criterion, device)
+        # 1) Train on null data
+        null_train_loss = train_one_epoch(
+            epoch, train_loader_null, model, optimizer, criterion, device
+        )
+        null_train_losses.append(null_train_loss)
 
+        # 2) Validate on null data
+        null_val_loss = val_test_one_epoch(
+            val_loader_null, model, criterion, device
+        )
+        null_val_losses.append(null_val_loss)
+
+        # 3) Early‐Stopping check
+        if null_val_loss < best_null_val_loss:
+            best_null_val_loss = null_val_loss
+            epochs_no_improve_null = 0
+            # save your null‐model checkpoint
+            torch.save(
+                model.state_dict(),
+                os.path.join(out_dir, 'best_model_null.pt')
+            )
+        else:
+            epochs_no_improve_null += 1
+            print(f"  ↳ Null: no improvement for {epochs_no_improve_null} epoch(s).")
+
+        if epochs_no_improve_null >= patience:
+            print(
+                f"Null‐model early stopping at epoch {epoch+1}. "
+                f"Best null val loss: {best_null_val_loss:.5f}"
+            )
+            break
+
+    # 4) Load the best null‐model before final test
+    model.load_state_dict(
+        torch.load(os.path.join(out_dir, 'best_model_null.pt'))
+    )
+    null_final_test_loss = val_test_one_epoch(
+        test_loader_null, model, criterion, device
+    )
     #>>stop
     plot_learning_curves(train_losses, val_losses, final_test_loss,
                          null_train_losses, null_val_losses, null_final_test_loss, out_dir
@@ -514,8 +575,11 @@ ms_per_frame_mouse3 = time_in_sec_mouse3 * 1000 / (num_of_frames_mouse3)
 num_of_neurons_l4 = len(l4_ids)
 num_of_neurons_l23 = len(l23_ids)
 num_of_frames = num_of_frames_mouse3
-batch_size = 1024
+batch_size = 32
 num_layers = 1
+# Ορίζουμε πόσοι workers
+NUM_WORKERS = max(os.cpu_count() - 1, 1)
+num_epochs = 100
 # #----------------------
 # lookback = 5
 # neuron = "V8213"
@@ -536,41 +600,37 @@ args = parser.parse_args()
 
 # multithreding code 
 
-# Ορίζουμε πόσοι workers
-NUM_WORKERS = max(os.cpu_count() - 1, 1)
 
 #loop
 for hidden_size in args.hidden_sizes:
     for lookback in args.lookbacks:
-        for num_epochs in args.epochs:
-            for learning_rate in args.lr:
-                desc = (f"hs={hidden_size} lb={lookback} "
-                        f"ep={num_epochs} lr={learning_rate}")
-                
-                # φτιάχνουμε τα partials για κάθε νευρώνα
-                jobs = []
-                for nid in l23_ids:
-                    neuron = f"V{nid}"
-                    job = partial(
-                        train_and_evaluate,
-                        eventograms_L23 = eventograms_L23_15_dc_data_mouse3,
-                        eventograms_L4  = eventograms_L4_15_dc_data_mouse3,
-                        num_of_neurons_l4  = num_of_neurons_l4,
-                        hidden_size     = hidden_size,
-                        lookback        = lookback,
-                        neuron          = neuron,
-                        num_epochs      = num_epochs,
-                        learning_rate   = learning_rate,
-                        device          = device,
-                        out_root        = args.out_root
-                    )
-                    jobs.append(job)
+        for learning_rate in args.lr:
+            desc = (f"hs={hidden_size} lb={lookback} lr={learning_rate}")
+            
+            # φτιάχνουμε τα partials για κάθε νευρώνα
+            jobs = []
+            for nid in l23_ids:
+                neuron = f"V{nid}"
+                job = partial(
+                    train_and_evaluate,
+                    eventograms_L23 = eventograms_L23_15_dc_data_mouse3,
+                    eventograms_L4  = eventograms_L4_15_dc_data_mouse3,
+                    num_of_neurons_l4  = num_of_neurons_l4,
+                    hidden_size     = hidden_size,
+                    lookback        = lookback,
+                    neuron          = neuron,
+                    num_epochs      = num_epochs,
+                    learning_rate   = learning_rate,
+                    device          = device,
+                    out_root        = args.out_root
+                )
+                jobs.append(job)
 
-                # parallel map με tqdm
-                with ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
-                    # executor.map θα τρέξει τα job() για κάθε νευρώνα
-                    for _ in tqdm(executor.map(lambda fn: fn(), jobs),
-                                  total=len(jobs),
-                                  desc=desc,
-                                  unit="neuron"):
-                        pass
+            # parallel map με tqdm
+            with ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
+                # executor.map θα τρέξει τα job() για κάθε νευρώνα
+                for _ in tqdm(executor.map(lambda fn: fn(), jobs),
+                                total=len(jobs),
+                                desc=desc,
+                                unit="neuron"):
+                    pass
