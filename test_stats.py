@@ -3,14 +3,18 @@ import numpy as np
 import matplotlib.pyplot as plt
 import plot_utils as pu
 import os
+from scipy import stats
 
-csv_path = "statistics/all_runs_summaryhl10lk10ep8_threshold.csv"
+
+csv_path = "statistics/all_runs_summary10kentries.csv"
 df = pd.read_csv(csv_path)
 
 output_path = "results"
 os.makedirs(output_path, exist_ok=True)  # ensure output directory exists
 
 def plot_metric(metric_real, metric_null, metric_name, split, output_path):
+    if metric_name == "Recall":
+        metric_name = "Sensitivity" 
     error_bar_style = {'ecolor': 'black', 'elinewidth': 2, 'capsize': 4, 'capthick': 2}
     fig, ax = pu.configure_plot(
         # title=(
@@ -56,6 +60,23 @@ def plot_metric(metric_real, metric_null, metric_name, split, output_path):
             zorder=1,
             error_kw=error_bar_style
         )
+        # Welch’s t-test
+        t_stat, p_value = stats.ttest_ind(
+            metric_real.dropna(), metric_null.dropna(), equal_var=False
+        )
+        # Print to console
+        print(f"{metric_name} ({split}): t = {t_stat:.3f}, p = {p_value:.3e}")
+        # Annotate on plot
+        ax.text(
+            0.05, 0.90,
+            f"t = {t_stat:.2f}, p = {p_value:.2e}",
+            transform=ax.transAxes,
+            fontsize=25,
+            verticalalignment='top',
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.5)
+        )
+
+    # Final formatting        
 
     ax.xaxis.set_major_locator(plt.MaxNLocator(3))
     ax.yaxis.set_major_locator(plt.MaxNLocator(5))
