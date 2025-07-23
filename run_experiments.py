@@ -1,6 +1,9 @@
 # cmd.exe /c run_experiments.bat
 # chmod +x run_experiments.sh and ./run_experiments.sh
 
+from collections import defaultdict
+
+
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 
@@ -116,8 +119,7 @@ def compute_metrics(y_true, y_pred, y_probs):
     return acc, prec, rec, spec, f1, ap, auc
 
 
-def logits_probs_preds(ys_train, ys_val, ys_test, train_loader, val_loader, test_loader, model, device):
-    
+def get_logits_probs(ys_train, ys_val, ys_test, train_loader, val_loader, test_loader, model, device):
     ys_train_true = ys_train
     ys_val_true = ys_val
     ys_test_true = ys_test
@@ -147,28 +149,29 @@ def logits_probs_preds(ys_train, ys_val, ys_test, train_loader, val_loader, test
     ys_val_probs   = sigmoid(ys_val_logits)
     ys_test_probs  = sigmoid(ys_test_logits)
 
+    return ys_train_logits, ys_val_logits, ys_test_logits, ys_train_probs, ys_val_probs, ys_test_probs#, ys_train_pred, ys_val_pred, ys_test_pred
 
-    # >>threshold<<
+def get_threshold(ys_val_true, ys_val_probs):
+        # >>threshold<<
     prec, rec, th = precision_recall_curve(ys_val_true, ys_val_probs)
     f1_scores = 2 * prec * rec / (prec + rec + 1e-8)
     best_idx   = f1_scores.argmax()
     best_threshold = th[best_idx]
-
-
     ld = th[best_idx]
     #print("Best Val F1 threshold:", best_threshold, "→ F1:", f1_scores[best_idx])
 
     # # βάλε το threshold σου στο επόμενο βήμα
     threshold = best_threshold
         
-    #threshold = 0.5
+    # threshold = 0.5
+    return threshold
 
+def get_preds(ys_train_probs, ys_val_probs, ys_test_probs, threshold):
     # (Optional) 5) Hard 0/1 preds at threshold 0.5
     ys_train_pred = (ys_train_probs > threshold).astype(int)
     ys_val_pred   = (ys_val_probs   > threshold).astype(int)
     ys_test_pred  = (ys_test_probs  > threshold).astype(int)
-
-    return ys_train_logits, ys_val_logits, ys_test_logits, ys_train_probs, ys_val_probs, ys_test_probs, ys_train_pred, ys_val_pred, ys_test_pred
+    return ys_train_pred, ys_val_pred, ys_test_pred
 
 def create_datasets(Xs_train, ys_train, Xs_val, ys_val, Xs_test, ys_test, Xs_null_train, Xs_null_val, Xs_null_test):
     train_dataset = TensorDataset(Xs_train, ys_train)
@@ -210,37 +213,38 @@ def sequences_to_tensors(Xs_train, ys_train, Xs_val, ys_val, Xs_test, ys_test, X
 def plot_learning_curves(train_losses, val_losses, final_test_loss,
                          null_train_losses, null_val_losses, null_final_test_loss, out_dir):
     return
-    # # Original palette (blues)
-    # orig_colors = sns.color_palette("Blues", 3)
+    # Original palette (blues)
+    orig_colors = sns.color_palette("Blues", 3)
 
-    # # Null palette: sample 5 from YlOrBr, then take the first 3 (yellow→light orange)
-    # null_colors = sns.color_palette("YlOrBr", 5)[:3]
+    # Null palette: sample 5 from YlOrBr, then take the first 3 (yellow→light orange)
+    null_colors = sns.color_palette("YlOrBr", 5)[:3]
 
-    # plt.figure(figsize=(12, 6))
+    plt.figure(figsize=(12, 6))
 
-    # # ─── Original model (all solid) ───
-    # plt.plot(train_losses, label='Train', color=orig_colors[0], linewidth=2, linestyle='-')
-    # plt.plot(val_losses,   label='Val',   color=orig_colors[1], linewidth=2, linestyle='-')
-    # plt.hlines(final_test_loss, 0, num_epochs-1,
-    #         label=f'Test = {final_test_loss:.3f}',
-    #         colors=[orig_colors[2]], linestyles='-', linewidth=2)
+    # ─── Original model (all solid) ───
+    plt.plot(train_losses, label='Train', color=orig_colors[0], linewidth=2, linestyle='-')
+    plt.plot(val_losses,   label='Val',   color=orig_colors[1], linewidth=2, linestyle='-')
+    plt.hlines(final_test_loss, 0, num_epochs-1,
+            label=f'Test = {final_test_loss:.3f}',
+            colors=[orig_colors[2]], linestyles='-', linewidth=2)
 
-    # # ─── Null model (all solid) ───
-    # plt.plot(null_train_losses, label='Null Train', color=null_colors[0], linewidth=2, linestyle='-')
-    # plt.plot(null_val_losses,   label='Null Val',   color=null_colors[1], linewidth=2, linestyle='-')
-    # plt.hlines(null_final_test_loss, 0, num_epochs-1,
-    #         label=f'Null Test = {null_final_test_loss:.3f}',
-    #         colors=[null_colors[2]], linestyles='-', linewidth=2)
+    # ─── Null model (all solid) ───
+    plt.plot(null_train_losses, label='Null Train', color=null_colors[0], linewidth=2, linestyle='-')
+    plt.plot(null_val_losses,   label='Null Val',   color=null_colors[1], linewidth=2, linestyle='-')
+    plt.hlines(null_final_test_loss, 0, num_epochs-1,
+            label=f'Null Test = {null_final_test_loss:.3f}',
+            colors=[null_colors[2]], linestyles='-', linewidth=2)
 
-    # plt.xlabel("Epoch", fontsize=14)
-    # plt.ylabel("Loss",  fontsize=14)
-    # plt.title("Learning Curves: Original vs. Null Models")
-    # plt.legend(fontsize=12)
-    # plt.grid(True)
-    # plt.tight_layout()
-    # #plt.show()
-    # plt.savefig(os.path.join(out_dir, "average_loss.png"))
-    # plt.close()
+    plt.xlabel("Epoch", fontsize=14)
+    plt.ylabel("Loss",  fontsize=14)
+    plt.title("Learning Curves: Original vs. Null Models")
+    plt.legend(fontsize=12)
+    plt.grid(True)
+    plt.tight_layout()
+    #plt.show()
+    plt.savefig(os.path.join(out_dir, "average_loss.png"))
+    plt.close()
+
 
 def keep_metrics(ys_train, ys_val, ys_test, train_loader, val_loader, test_loader,
                  ys_train_null, ys_val_null, ys_test_null, train_loader_null, val_loader_null, test_loader_null, out_dir, run_name, model, device):
@@ -248,8 +252,14 @@ def keep_metrics(ys_train, ys_val, ys_test, train_loader, val_loader, test_loade
     ys_val_true = ys_val
     ys_test_true = ys_test
 
-    ys_train_logits, ys_val_logits, ys_test_logits, ys_train_probs, ys_val_probs, ys_test_probs, ys_train_pred, ys_val_pred, ys_test_pred = logits_probs_preds(ys_train, ys_val, ys_test, train_loader, val_loader, test_loader, model, device)
-    ys_train_logits_null, ys_val_logits_null, ys_test_logits_null, ys_train_probs_null, ys_val_probs_null, ys_test_probs_null, ys_train_pred_null, ys_val_pred_null, ys_test_pred_null = logits_probs_preds(ys_train, ys_val, ys_test, train_loader_null, val_loader_null, test_loader_null, model, device)
+    ys_train_logits, ys_val_logits, ys_test_logits, ys_train_probs, ys_val_probs, ys_test_probs = get_logits_probs(ys_train, ys_val, ys_test, train_loader, val_loader, test_loader, model, device)
+    ys_train_logits_null, ys_val_logits_null, ys_test_logits_null, ys_train_probs_null, ys_val_probs_null, ys_test_probs_null = get_logits_probs(ys_train, ys_val, ys_test, train_loader_null, val_loader_null, test_loader_null, model, device)
+
+    threshold = get_threshold(ys_val_true, ys_val_probs)
+    threshold = 0.1
+    ys_train_pred, ys_val_pred, ys_test_pred = get_preds(ys_train_probs, ys_val_probs, ys_test_probs, threshold)
+    ys_train_pred_null, ys_val_pred_null, ys_test_pred_null = get_preds(ys_train_probs_null, ys_val_probs_null, ys_test_probs_null, threshold)
+
 
     train_metrics      = compute_metrics(ys_train_true,      ys_train_pred,      ys_train_probs)
     val_metrics        = compute_metrics(ys_val_true,        ys_val_pred,        ys_val_probs)
@@ -305,7 +315,17 @@ def keep_metrics(ys_train, ys_val, ys_test, train_loader, val_loader, test_loade
     print(f"Finished {run_name}")
 
 #>>loop function
-def train_and_evaluate(eventograms_L23, eventograms_L4, num_of_neurons_l4, hidden_size, lookback, neuron, num_epochs, learning_rate, device, out_root, patience=5): # run_counter, total_runs, out_root):
+def train_and_evaluate(eventograms_L23, 
+                       eventograms_L4, 
+                       #neuron_groups_dict, 
+                       hidden_size, 
+                       lookback, 
+                       neuron, 
+                       num_epochs, 
+                       learning_rate, 
+                       device, 
+                       out_root, 
+                       patience=5): # run_counter, total_runs, out_root):
 
     print(f"Running test: "
           f"hidden_size={hidden_size}, "
@@ -329,7 +349,14 @@ def train_and_evaluate(eventograms_L23, eventograms_L4, num_of_neurons_l4, hidde
 
     print(f"Count of ones in {neuron}: {count_ones} / {len(eventograms_L23)} or {count_ones / len(eventograms_L23) * 100:.2f}%")
 
-    df = pd.concat([ eventograms_L23[[neuron]], eventograms_L4], axis=1)
+    # #new
+    # nid = int(neuron.lstrip("V"))
+    # l4_ids = neuron_groups_dict.get(nid, [])
+    # l4_cols = [f"V{lid}" for lid in l4_ids if f"V{lid}" in eventograms_L4.columns]
+    # print(f"[{neuron}] using {len(l4_cols)} L4 cols")
+    # #
+
+    df = pd.concat([ eventograms_L23[[neuron]], eventograms_L4[l4_cols] ], axis=1)
 
     print(df.shape)  # should be (23070, 1193) for L23 and should be (23070, 2670) for L4
     X = df
@@ -354,11 +381,19 @@ def train_and_evaluate(eventograms_L23, eventograms_L4, num_of_neurons_l4, hidde
     y_val   = y[train_end:val_end]
     y_test  = y[val_end:]
 
+    print(f"X_train.shape: {X_train.shape}, y_train.shape: {y_train.shape}")
+    print(f"X_val.shape:   {X_val.shape},   y_val.shape:   {y_val.shape}")
+    print(f"X_test.shape:  {X_test.shape},  y_test.shape:  {y_test.shape}")
 
     Xs_train, ys_train = create_sequences(X_train, y_train, lookback)
     Xs_val, ys_val = create_sequences(X_val, y_val, lookback)
     Xs_test, ys_test = create_sequences(X_test, y_test, lookback)
     #(for Xs_train.shape 23070 is all frames we use train_fac * 23070 so 18456 frames as training)
+
+
+    print(f"Xs_train.shape: {Xs_train.shape}, ys_train.shape: {ys_train.shape}")
+    print(f"Xs_val.shape:   {Xs_val.shape},   ys_val.shape:   {ys_val.shape}")
+    print(f"Xs_test.shape:  {Xs_test.shape},  ys_test.shape:  {ys_test.shape}")
 
     X_null_train = X_null[:train_end]
     X_null_val   = X_null[train_end:val_end]
@@ -374,17 +409,25 @@ def train_and_evaluate(eventograms_L23, eventograms_L4, num_of_neurons_l4, hidde
         Xs_train, ys_train, Xs_val, ys_val, Xs_test, ys_test, Xs_null_train, Xs_null_val, Xs_null_test
     )   
 
+    print(f"Xs_train.shape: {Xs_train.shape}, ys_train.shape: {ys_train.shape}")    
+    print(f"Xs_val.shape:   {Xs_val.shape},   ys_val.shape:   {ys_val.shape}")
+    print(f"Xs_test.shape:  {Xs_test.shape},  ys_test.shape:  {ys_test.shape}")
+
 
     train_loader, val_loader, test_loader, train_loader_null, val_loader_null, test_loader_null = create_datasets(
         Xs_train, ys_train, Xs_val, ys_val, Xs_test, ys_test, Xs_null_train, Xs_null_val, Xs_null_test)
     
+
     for _, batch in enumerate(train_loader):
         x_batch, y_batch = batch[0].to(device), batch[1].to(device)
         print(x_batch.shape, y_batch.shape)
         break  # Just show the first batch
 
+    input_size = X.shape[1]
+    print(f"Input size: {input_size}, Hidden size: {hidden_size}, Lookback: {lookback}")
+   
     class LSTMNetwork(nn.Module):
-        def __init__(self, input_size=num_of_neurons_l4+1, hidden_size= hidden_size, num_layers=num_layers, output_size=1):
+        def __init__(self, input_size=input_size, hidden_size= hidden_size, num_layers=num_layers, output_size=1):
             super(LSTMNetwork, self).__init__()
             self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
             self.fc   = nn.Linear(hidden_size, output_size)
@@ -407,7 +450,7 @@ def train_and_evaluate(eventograms_L23, eventograms_L4, num_of_neurons_l4, hidde
         device=device
     )
 
-    criterion = nn.BCEWithLogitsLoss()#pos_weight=pos_weights)
+    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weights)
 
 
     #criterion = nn.MSELoss()
@@ -533,10 +576,58 @@ L234_neurons_within_boundaries_data_mouse3 = pd.concat(
 )
 L234_neurons_within_boundaries_data_mouse3.columns = ["Neuron_IDs"]
 
+
+l4_ids  = set(L4_neurons_per_Layer_within_boundaries_data_mouse3["Neuron_IDs"])
+l23_ids = set(L23_neurons_per_Layer_within_boundaries_data_mouse3["Neuron_IDs"])
+
+
+# STTC_500shifts_0_dt_data_mouse3 = pd.read_csv("../data/mouse24617_STTC_3nz_1.5dc_full_60min_500-shifts_0-dt_pairs.csv")
+
+# make a set of the “within‐boundaries” IDs
+allowed_ids = set(L234_neurons_within_boundaries_data_mouse3["Neuron_IDs"])
+
+# # filter the STTC pairs so both ends are in that set
+# STTC_L234_500shifts_0_dt_data_mouse3 = (
+#     STTC_500shifts_0_dt_data_mouse3[
+#         STTC_500shifts_0_dt_data_mouse3["NeuronA"].isin(allowed_ids)
+#         & STTC_500shifts_0_dt_data_mouse3["NeuronB"].isin(allowed_ids)
+#     ]
+#     .copy()
+# )
+
+# # compute z-score and build new DataFrame
+# z_score_L234_500shifts_0_dt_data_mouse3 = (STTC_L234_500shifts_0_dt_data_mouse3
+#     .assign(z_score=(STTC_L234_500shifts_0_dt_data_mouse3['STTC'] - STTC_L234_500shifts_0_dt_data_mouse3['CtrlGrpMean']) / STTC_L234_500shifts_0_dt_data_mouse3['CtrlGrpStDev'])
+#     [['NeuronA', 'NeuronB', 'z_score']]
+# )
+
+# z_score_L234_500shifts_0_dt_data_mouse3_more_than_4 = z_score_L234_500shifts_0_dt_data_mouse3[z_score_L234_500shifts_0_dt_data_mouse3['z_score'] >= 4]
+
+# z_score_L234_500shifts_0_dt_data_mouse3_more_than_4 = z_score_L234_500shifts_0_dt_data_mouse3_more_than_4.reset_index(drop=True)
+
+# z_score_L234_500shifts_0_dt_data_mouse3_more_than_4_l23A = z_score_L234_500shifts_0_dt_data_mouse3_more_than_4[z_score_L234_500shifts_0_dt_data_mouse3_more_than_4['NeuronA'].isin(l23_ids)]
+
+# z_score_L234_500shifts_0_dt_data_mouse3_more_than_4_l23A_L4B = z_score_L234_500shifts_0_dt_data_mouse3_more_than_4_l23A[z_score_L234_500shifts_0_dt_data_mouse3_more_than_4_l23A['NeuronB'].isin(l4_ids)]
+
+# z_score_L234_500shifts_0_dt_data_mouse3_more_than_4_l23A_L4B = z_score_L234_500shifts_0_dt_data_mouse3_more_than_4_l23A_L4B.reset_index(drop=True)
+
+
+# neuron_groups_dict = defaultdict(set)
+# for a, b in zip(z_score_L234_500shifts_0_dt_data_mouse3_more_than_4_l23A_L4B['NeuronA'], z_score_L234_500shifts_0_dt_data_mouse3_more_than_4_l23A_L4B['NeuronB']):
+#     neuron_groups_dict[a].add(b)
+
+# # και αν θες κανονικό dict
+# neuron_groups_dict = dict(neuron_groups_dict)
+
+# l4_ids_groups = z_score_L234_500shifts_0_dt_data_mouse3_more_than_4_l23A_L4B['NeuronB'].unique().tolist() 
+# l23_ids_groups = z_score_L234_500shifts_0_dt_data_mouse3_more_than_4_l23A_L4B['NeuronA'].unique().tolist()
+
+
 eventograms_15_dc_data_mouse3 = pd.read_csv("../data/mouse24617_IoannisThreshold_3nz_1.5dc_full_60min.csv")
 
+allowed = list(set(l4_ids).union(set(l23_ids)))
 
-allowed = set(L234_neurons_within_boundaries_data_mouse3["Neuron_IDs"])
+#allowed = list(set(l4_ids_groups).union(set(l23_ids_groups)))
 
 cols = [f"V{nid}" for nid in allowed if f"V{nid}" in eventograms_15_dc_data_mouse3.columns]
 
@@ -545,22 +636,18 @@ eventograms_L234_15_dc_data_mouse3 = (
     .copy()
 )
 
-l4_ids  = set(L4_neurons_per_Layer_within_boundaries_data_mouse3["Neuron_IDs"])
-l23_ids = set(L23_neurons_per_Layer_within_boundaries_data_mouse3["Neuron_IDs"])
-
 l4_cols  = [f"V{nid}" for nid in l4_ids  if f"V{nid}" in eventograms_L234_15_dc_data_mouse3.columns]
 l23_cols = [f"V{nid}" for nid in l23_ids if f"V{nid}" in eventograms_L234_15_dc_data_mouse3.columns]
 
 eventograms_L4_15_dc_data_mouse3  = eventograms_L234_15_dc_data_mouse3[l4_cols].copy()
 eventograms_L23_15_dc_data_mouse3 = eventograms_L234_15_dc_data_mouse3[l23_cols].copy()
 
-num_of_neurons_l4 = len(l4_ids)
-num_of_neurons_l23 = len(l23_ids)
+print(f"eventograms_L4_15_dc_data_mouse3.shape: {eventograms_L4_15_dc_data_mouse3.shape}"   
+      f"eventograms_L23_15_dc_data_mouse3.shape: {eventograms_L23_15_dc_data_mouse3.shape}"     )
+
 
 # Setting up the device for PyTorch
 device = my_cuda()
-
-
 
 
 #>>parameters<<<
@@ -571,13 +658,15 @@ time_in_sec_mouse3 = 3661
 num_of_frames_mouse3 = frame_end_mouse3 - frame_start_mouse3 + 1
 ms_per_frame_mouse3 = time_in_sec_mouse3 * 1000 / (num_of_frames_mouse3)   
 #>>batch
+# l4_ids =l4_ids_groups
+# l23_ids = l23_ids_groups
 num_of_neurons_l4 = len(l4_ids)
 num_of_neurons_l23 = len(l23_ids)
 num_of_frames = num_of_frames_mouse3
-batch_size = 64
+batch_size = 32
 num_layers = 1
 # Ορίζουμε πόσοι workers
-NUM_WORKERS = max(os.cpu_count() - 1, 1)
+NUM_WORKERS = max(os.cpu_count() - 1, 1) 
 num_epochs = 100
 # #----------------------
 # lookback = 5
@@ -588,8 +677,8 @@ num_epochs = 100
 # num_epochs = 100
 # #--------------------------
 parser = argparse.ArgumentParser()
-parser.add_argument("--hidden_sizes", nargs="+", type=int, default=[32])
-parser.add_argument("--lookbacks",    nargs="+", type=int, default=[32])
+parser.add_argument("--hidden_sizes", nargs="+", type=int, default=[10])
+parser.add_argument("--lookbacks",    nargs="+", type=int, default=[10])
 # parser.add_argument("--neurons",      nargs="+", type=str,default=["V8192"])
 # parser.add_argument("--epochs",       nargs="+", type=int, default=[8])
 parser.add_argument("--lr",           nargs="+", type=float, default=[0.001])
@@ -597,7 +686,30 @@ parser.add_argument("--lr",           nargs="+", type=float, default=[0.001])
 parser.add_argument("--out_root",     type=str,   default="results")
 args = parser.parse_args()
 
+#loop
+# for hidden_size in args.hidden_sizes:
+#     for lookback in args.lookbacks:
+#         for learning_rate in args.lr:
+#             desc = (f"hs={hidden_size} lb={lookback} "
+#                     f"ep={num_epochs} lr={learning_rate}")
+#             train_and_evaluate(
+#                 eventograms_L23 = eventograms_L23_15_dc_data_mouse3,
+#                 eventograms_L4  = eventograms_L4_15_dc_data_mouse3,
+#                 neuron_groups_dict = neuron_groups_dict,
+#                 hidden_size     = hidden_size,
+#                 lookback        = lookback,
+#                 neuron          = "V368",  # or any other neuron you want to test
+#                 num_epochs      = num_epochs,
+#                 learning_rate   = learning_rate,
+#                 device          = device,
+#                 out_root        = args.out_root
+#             )   
+
+
+
+
 # multithreding code 
+
 
 
 #loop
@@ -609,13 +721,13 @@ for hidden_size in args.hidden_sizes:
             
             # φτιάχνουμε τα partials για κάθε νευρώνα
             jobs = []
-            for nid in l23_ids:
+            for nid in l23_ids:#_groups:
                 neuron = f"V{nid}"
                 job = partial(
                     train_and_evaluate,
                     eventograms_L23 = eventograms_L23_15_dc_data_mouse3,
                     eventograms_L4  = eventograms_L4_15_dc_data_mouse3,
-                    num_of_neurons_l4  = num_of_neurons_l4,
+                    # neuron_groups_dict = neuron_groups_dict,
                     hidden_size     = hidden_size,
                     lookback        = lookback,
                     neuron          = neuron,
@@ -634,3 +746,6 @@ for hidden_size in args.hidden_sizes:
                                 desc=desc,
                                 unit="neuron"):
                     pass
+
+
+
