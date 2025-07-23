@@ -119,8 +119,7 @@ def compute_metrics(y_true, y_pred, y_probs):
     return acc, prec, rec, spec, f1, ap, auc
 
 
-def logits_probs_preds(ys_train, ys_val, ys_test, train_loader, val_loader, test_loader, model, device):
-    
+def get_logits_probs(ys_train, ys_val, ys_test, train_loader, val_loader, test_loader, model, device):
     ys_train_true = ys_train
     ys_val_true = ys_val
     ys_test_true = ys_test
@@ -150,28 +149,29 @@ def logits_probs_preds(ys_train, ys_val, ys_test, train_loader, val_loader, test
     ys_val_probs   = sigmoid(ys_val_logits)
     ys_test_probs  = sigmoid(ys_test_logits)
 
+    return ys_train_logits, ys_val_logits, ys_test_logits, ys_train_probs, ys_val_probs, ys_test_probs#, ys_train_pred, ys_val_pred, ys_test_pred
 
-    # >>threshold<<
+def get_threshold(ys_val_true, ys_val_probs):
+        # >>threshold<<
     prec, rec, th = precision_recall_curve(ys_val_true, ys_val_probs)
     f1_scores = 2 * prec * rec / (prec + rec + 1e-8)
     best_idx   = f1_scores.argmax()
     best_threshold = th[best_idx]
-
-
     ld = th[best_idx]
     #print("Best Val F1 threshold:", best_threshold, "→ F1:", f1_scores[best_idx])
 
     # # βάλε το threshold σου στο επόμενο βήμα
     threshold = best_threshold
         
-    #threshold = 0.5
+    # threshold = 0.5
+    return threshold
 
+def get_preds(ys_train_probs, ys_val_probs, ys_test_probs, threshold):
     # (Optional) 5) Hard 0/1 preds at threshold 0.5
     ys_train_pred = (ys_train_probs > threshold).astype(int)
     ys_val_pred   = (ys_val_probs   > threshold).astype(int)
     ys_test_pred  = (ys_test_probs  > threshold).astype(int)
-
-    return ys_train_logits, ys_val_logits, ys_test_logits, ys_train_probs, ys_val_probs, ys_test_probs, ys_train_pred, ys_val_pred, ys_test_pred
+    return ys_train_pred, ys_val_pred, ys_test_pred
 
 def create_datasets(Xs_train, ys_train, Xs_val, ys_val, Xs_test, ys_test, Xs_null_train, Xs_null_val, Xs_null_test):
     train_dataset = TensorDataset(Xs_train, ys_train)
@@ -245,14 +245,21 @@ def plot_learning_curves(train_losses, val_losses, final_test_loss,
     plt.savefig(os.path.join(out_dir, "average_loss.png"))
     plt.close()
 
+
 def keep_metrics(ys_train, ys_val, ys_test, train_loader, val_loader, test_loader,
                  ys_train_null, ys_val_null, ys_test_null, train_loader_null, val_loader_null, test_loader_null, out_dir, run_name, model, device):
     ys_train_true = ys_train
     ys_val_true = ys_val
     ys_test_true = ys_test
 
-    ys_train_logits, ys_val_logits, ys_test_logits, ys_train_probs, ys_val_probs, ys_test_probs, ys_train_pred, ys_val_pred, ys_test_pred = logits_probs_preds(ys_train, ys_val, ys_test, train_loader, val_loader, test_loader, model, device)
-    ys_train_logits_null, ys_val_logits_null, ys_test_logits_null, ys_train_probs_null, ys_val_probs_null, ys_test_probs_null, ys_train_pred_null, ys_val_pred_null, ys_test_pred_null = logits_probs_preds(ys_train, ys_val, ys_test, train_loader_null, val_loader_null, test_loader_null, model, device)
+    ys_train_logits, ys_val_logits, ys_test_logits, ys_train_probs, ys_val_probs, ys_test_probs = get_logits_probs(ys_train, ys_val, ys_test, train_loader, val_loader, test_loader, model, device)
+    ys_train_logits_null, ys_val_logits_null, ys_test_logits_null, ys_train_probs_null, ys_val_probs_null, ys_test_probs_null = get_logits_probs(ys_train, ys_val, ys_test, train_loader_null, val_loader_null, test_loader_null, model, device)
+
+    threshold = get_threshold(ys_val_true, ys_val_probs)
+    threshold = 0.1
+    ys_train_pred, ys_val_pred, ys_test_pred = get_preds(ys_train_probs, ys_val_probs, ys_test_probs, threshold)
+    ys_train_pred_null, ys_val_pred_null, ys_test_pred_null = get_preds(ys_train_probs_null, ys_val_probs_null, ys_test_probs_null, threshold)
+
 
     train_metrics      = compute_metrics(ys_train_true,      ys_train_pred,      ys_train_probs)
     val_metrics        = compute_metrics(ys_val_true,        ys_val_pred,        ys_val_probs)
@@ -443,7 +450,7 @@ def train_and_evaluate(eventograms_L23,
         device=device
     )
 
-    criterion = nn.BCEWithLogitsLoss()#pos_weight=pos_weights)
+    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weights)
 
 
     #criterion = nn.MSELoss()
@@ -655,7 +662,7 @@ l23_ids = l23_ids_groups
 num_of_neurons_l4 = len(l4_ids)
 num_of_neurons_l23 = len(l23_ids)
 num_of_frames = num_of_frames_mouse3
-batch_size = 64
+batch_size = 32
 num_layers = 1
 # Ορίζουμε πόσοι workers
 NUM_WORKERS = max(os.cpu_count() - 1, 1) 
