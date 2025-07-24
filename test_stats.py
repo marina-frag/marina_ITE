@@ -68,12 +68,13 @@ def plot_metric(metric_real, metric_null, metric_name, split, output_path):
         print(f"{metric_name} ({split}): t = {t_stat:.3f}, p = {p_value:.3e}")
         # Annotate on plot
         ax.text(
-            0.05, 0.90,
+            0.05, 0.9,
             f"t = {t_stat:.2f}, p = {p_value:.2e}",
             transform=ax.transAxes,
             fontsize=25,
             verticalalignment='top',
-            bbox=dict(boxstyle='round', facecolor='white', alpha=0.5)
+            alpha=0.7,
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.7)
         )
 
     # Final formatting        
