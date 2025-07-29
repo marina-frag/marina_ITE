@@ -1,8 +1,6 @@
 # cmd.exe /c run_experiments.bat
 # chmod +x run_experiments.sh and ./run_experiments.sh
 
-from sklearn.preprocessing import MinMaxScaler
-
 from collections import defaultdict
 
 
@@ -66,8 +64,8 @@ def create_sequences(X, y, lookback):
     for i in range(len(X) - lookback):
     # Check if this window belongs to a single group
         Xs.append(X[i:i+lookback])
-        ys.append(y[i+lookback])
-        #Ys.append(Y[i+1:i+1+window_size])
+        #ys.append(y[i+lookback])
+        ys.append(y[i+1:i+1+lookback])
     return np.stack(Xs), np.array(ys)
 
 def circular_shift_df(dt):
@@ -84,7 +82,7 @@ def train_one_epoch(epoch, loader, model, optimizer, criterion, device):
         xb, yb = xb.to(device), yb.to(device)
         optimizer.zero_grad()
         logits = model(xb)
-        loss   = criterion(logits, yb.view_as(logits))
+        loss   = criterion(logits, yb)#.view_as(logits))
         loss.backward()
         optimizer.step()
         total_loss += loss.item()
@@ -100,13 +98,17 @@ def val_test_one_epoch(loader, model, criterion, device):
         for xb, yb in loader:
             xb, yb = xb.to(device), yb.to(device)
             logits = model(xb)
-            total_loss += criterion(logits, yb.view_as(logits)).item()
+            total_loss += criterion(logits, yb)#.view_as(logits)).item()
     avg = total_loss / len(loader)
     print(f"  Val Loss: {avg:.5f}")
     return avg
 def sigmoid(z):
     return 1 / (1 + np.exp(-z))
 def compute_metrics(y_true, y_pred, y_probs):
+    # Flatten για να τα κάνουμε 1D
+    y_true = y_true.flatten()
+    y_pred = y_pred.flatten()
+    y_probs = y_probs.flatten()
     # threshold‐dependent
     acc  = accuracy_score(y_true, y_pred)            # no zero_division here
     prec = precision_score(y_true, y_pred, zero_division=0)
@@ -141,9 +143,9 @@ def get_logits_probs(ys_train, ys_val, ys_test, train_loader, val_loader, test_l
             ys_test_logits.append( model(xb.to(device)).cpu())
 
     # 2) Stack into single tensors/arrays
-    ys_train_logits = torch.cat(ys_train_logits, dim=0).numpy().flatten()
-    ys_val_logits   = torch.cat(ys_val_logits,   dim=0).numpy().flatten()
-    ys_test_logits  = torch.cat(ys_test_logits,  dim=0).numpy().flatten()
+    ys_train_logits = torch.cat(ys_train_logits, dim=0).numpy()#.flatten()
+    ys_val_logits   = torch.cat(ys_val_logits,   dim=0).numpy()#.flatten()
+    ys_test_logits  = torch.cat(ys_test_logits,  dim=0).numpy()#.flatten()
 
 
     # 4) Convert to probabilities
@@ -166,8 +168,7 @@ def get_threshold(ys_val_true, ys_val_probs):
     threshold = best_threshold
         
     # threshold = 0.5
-    return 
-
+    return threshold
 def get_stat_threshold(eventograms_L23, neuron):
     count_ones = eventograms_L23[[neuron]].sum().values[0]
     num_of_frames = len(eventograms_L23)
@@ -203,13 +204,13 @@ def create_datasets(Xs_train, ys_train, Xs_val, ys_val, Xs_test, ys_test, Xs_nul
 
 def sequences_to_tensors(Xs_train, ys_train, Xs_val, ys_val, Xs_test, ys_test, Xs_null_train, Xs_null_val, Xs_null_test):
     Xs_train = torch.tensor(Xs_train, dtype=torch.float32)
-    ys_train = torch.tensor(ys_train, dtype=torch.float32).unsqueeze(1)
+    ys_train = torch.tensor(ys_train, dtype=torch.float32)#.unsqueeze(1)
 
     Xs_val = torch.tensor(Xs_val, dtype=torch.float32)
-    ys_val = torch.tensor(ys_val, dtype=torch.float32).unsqueeze(1)
+    ys_val = torch.tensor(ys_val, dtype=torch.float32)#.unsqueeze(1)
 
     Xs_test = torch.tensor(Xs_test, dtype=torch.float32)
-    ys_test = torch.tensor(ys_test, dtype=torch.float32).unsqueeze(1)
+    ys_test = torch.tensor(ys_test, dtype=torch.float32)#.unsqueeze(1)
 
     Xs_null_train = torch.tensor(Xs_null_train, dtype=torch.float32)
 
@@ -263,7 +264,8 @@ def keep_metrics(ys_train, ys_val, ys_test, train_loader, val_loader, test_loade
     ys_train_logits, ys_val_logits, ys_test_logits, ys_train_probs, ys_val_probs, ys_test_probs = get_logits_probs(ys_train, ys_val, ys_test, train_loader, val_loader, test_loader, model, device)
     ys_train_logits_null, ys_val_logits_null, ys_test_logits_null, ys_train_probs_null, ys_val_probs_null, ys_test_probs_null = get_logits_probs(ys_train, ys_val, ys_test, train_loader_null, val_loader_null, test_loader_null, model, device)
 
-    # threshold = get_threshold(ys_val_true, ys_val_probs)
+     #get_threshold(ys_val_true, ys_val_probs)
+
     ys_train_pred, ys_val_pred, ys_test_pred = get_preds(ys_train_probs, ys_val_probs, ys_test_probs, threshold)
     ys_train_pred_null, ys_val_pred_null, ys_test_pred_null = get_preds(ys_train_probs_null, ys_val_probs_null, ys_test_probs_null, threshold)
 
@@ -325,7 +327,6 @@ def keep_metrics(ys_train, ys_val, ys_test, train_loader, val_loader, test_loade
 def train_and_evaluate(eventograms_L23, 
                        eventograms_L4, 
                        neuron_groups_dict, 
-                       pupil_size,
                        hidden_size, 
                        lookback, 
                        neuron, 
@@ -333,7 +334,8 @@ def train_and_evaluate(eventograms_L23,
                        learning_rate, 
                        device, 
                        out_root, 
-                       threshold
+                       output_size,
+                       threshold,
                        patience=5): # run_counter, total_runs, out_root):
 
     print(f"Running test: "
@@ -368,10 +370,6 @@ def train_and_evaluate(eventograms_L23,
     df = pd.concat([ eventograms_L23[[neuron]], eventograms_L4[l4_cols] ], axis=1)
 
     print(df.shape)  # should be (23070, 1193) for L23 and should be (23070, 2670) for L4
-
-    df = pd.concat([df, pupil_size[['radius_scaled']].rename(columns={'radius_scaled':'radius_scaled'})],
-               axis=1)
-
     X = df
     y = df[neuron]
 
@@ -440,33 +438,33 @@ def train_and_evaluate(eventograms_L23,
     print(f"Input size: {input_size}, Hidden size: {hidden_size}, Lookback: {lookback}")
    
     class LSTMNetwork(nn.Module):
-        def __init__(self, input_size=input_size, hidden_size= hidden_size, num_layers=num_layers, output_size=1):
+        def __init__(self, input_size=input_size, hidden_size= hidden_size, num_layers=num_layers, output_size=output_size):
             super(LSTMNetwork, self).__init__()
             self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
             self.fc   = nn.Linear(hidden_size, output_size)
 
         def forward(self, x):
             out, _ = self.lstm(x)
-            out = out[:, -1, :]
+            #out = out[:, -1, :]
             logits = self.fc(out)
-            return logits               # raw scores (“logits”)
+            return logits.squeeze(-1)               # raw scores (“logits”)
     model = LSTMNetwork().to(device)
     torch.cuda.empty_cache()
 
     #criterion = nn.BCEWithLogitsLoss() # internally applies sigmoid + BCELoss
 
-    eps = 1e-5
-    # num_of_frames - count_ones gives negatives; count_ones + eps avoids division by zero
-    pos_weights = torch.tensor(
-        (num_of_frames - count_ones) / (count_ones + eps),
-        dtype=torch.float32,
-        device=device
-    )
+    # eps = 1e-5
+    # # num_of_frames - count_ones gives negatives; count_ones + eps avoids division by zero
+    # pos_weights = torch.tensor(
+    #     (num_of_frames - count_ones) / (count_ones + eps),
+    #     dtype=torch.float32,
+    #     device=device
+    # )
 
-    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weights)
+    # criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weights)
 
 
-    #criterion = nn.MSELoss()
+    criterion = nn.CrossEntropyLoss() # for multi-class classification
 
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     display(model)  
@@ -560,17 +558,6 @@ def train_and_evaluate(eventograms_L23,
 
 #main
 #load data
-#>>pupil
-behavioral_pupil_cleared_data_mouse3 = pd.read_csv("../data/mouse-24617_behavioral_pupil_cleaned_interpolated_spontaneous_frames.csv")
-
-pupil_size = behavioral_pupil_cleared_data_mouse3[['Frames', 'PupilRadius']]
-
-scaler = MinMaxScaler(feature_range=(0, 1))
-
-pupil_size[['radius_scaled']] = scaler.fit_transform(pupil_size[['PupilRadius']])
-
-
-#>>within boundaries
 within_boundaries_data_mouse3 = pd.read_csv("../data/mouse24617_withinBoundaries_15um-no_gap.csv")
 
 L4_neurons_per_Layer_data_mouse3 = pd.read_csv("../data/mouse24617_L4_neuronPerLayer_V1_0.01Hz.csv")
@@ -604,7 +591,7 @@ L234_neurons_within_boundaries_data_mouse3.columns = ["Neuron_IDs"]
 l4_ids  = set(L4_neurons_per_Layer_within_boundaries_data_mouse3["Neuron_IDs"])
 l23_ids = set(L23_neurons_per_Layer_within_boundaries_data_mouse3["Neuron_IDs"])
 
-#>>STTC, z_score
+
 STTC_500shifts_0_dt_data_mouse3 = pd.read_csv("../data/mouse24617_STTC_3nz_1.5dc_full_60min_500-shifts_0-dt_pairs.csv")
 
 # make a set of the “within‐boundaries” IDs
@@ -646,7 +633,7 @@ neuron_groups_dict = dict(neuron_groups_dict)
 l4_ids_groups = z_score_L234_500shifts_0_dt_data_mouse3_more_than_4_l23A_L4B['NeuronB'].unique().tolist() 
 l23_ids_groups = z_score_L234_500shifts_0_dt_data_mouse3_more_than_4_l23A_L4B['NeuronA'].unique().tolist()
 
-#>>eventograms
+
 eventograms_15_dc_data_mouse3 = pd.read_csv("../data/mouse24617_IoannisThreshold_3nz_1.5dc_full_60min.csv")
 
 
@@ -667,7 +654,6 @@ eventograms_L23_15_dc_data_mouse3 = eventograms_L234_15_dc_data_mouse3[l23_cols]
 
 print(f"eventograms_L4_15_dc_data_mouse3.shape: {eventograms_L4_15_dc_data_mouse3.shape}"   
       f"eventograms_L23_15_dc_data_mouse3.shape: {eventograms_L23_15_dc_data_mouse3.shape}"     )
-
 
 
 # Setting up the device for PyTorch
@@ -692,6 +678,7 @@ num_layers = 1
 # Ορίζουμε πόσοι workers
 NUM_WORKERS = max(os.cpu_count() - 1, 1) 
 num_epochs = 100
+output_size = 3  # since we are predicting a single neuron activity
 # #----------------------
 # lookback = 5
 # neuron = "V8213"
@@ -752,15 +739,15 @@ for hidden_size in args.hidden_sizes:
                     eventograms_L23 = eventograms_L23_15_dc_data_mouse3,
                     eventograms_L4  = eventograms_L4_15_dc_data_mouse3,
                     neuron_groups_dict = neuron_groups_dict,
-                    pupil_size = pupil_size,
                     hidden_size     = hidden_size,
                     lookback        = lookback,
                     neuron          = neuron,
                     num_epochs      = num_epochs,
                     learning_rate   = learning_rate,
                     device          = device,
-                    out_root        = args.out_root
-                    threshold = get_stat_threshold(eventograms_L23_15_dc_data_mouse3, neuron)
+                    out_root        = args.out_root,
+                    output_size     = output_size,
+                    threshold         = get_stat_threshold(eventograms_L23_15_dc_data_mouse3, neuron)
                 )
                 jobs.append(job)
 
