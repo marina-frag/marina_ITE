@@ -256,7 +256,6 @@ def keep_metrics(ys_train, ys_val, ys_test, train_loader, val_loader, test_loade
     ys_train_logits_null, ys_val_logits_null, ys_test_logits_null, ys_train_probs_null, ys_val_probs_null, ys_test_probs_null = get_logits_probs(ys_train, ys_val, ys_test, train_loader_null, val_loader_null, test_loader_null, model, device)
 
     threshold = get_threshold(ys_val_true, ys_val_probs)
-    threshold = 0.1
     ys_train_pred, ys_val_pred, ys_test_pred = get_preds(ys_train_probs, ys_val_probs, ys_test_probs, threshold)
     ys_train_pred_null, ys_val_pred_null, ys_test_pred_null = get_preds(ys_train_probs_null, ys_val_probs_null, ys_test_probs_null, threshold)
 

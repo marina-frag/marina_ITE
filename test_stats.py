@@ -6,7 +6,7 @@ import os
 from scipy import stats
 
 
-csv_path = "statistics/all_runs_summary_static_threshold.csv"
+csv_path = "statistics/all_runs_summary_651_L23_all_L4.csv"
 df = pd.read_csv(csv_path)
 
 output_path = "results"
