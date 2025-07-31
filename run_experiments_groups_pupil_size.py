@@ -166,7 +166,7 @@ def get_threshold(ys_val_true, ys_val_probs):
     threshold = best_threshold
         
     # threshold = 0.5
-    return 
+    return threshold
 
 def get_stat_threshold(eventograms_L23, neuron):
     count_ones = eventograms_L23[[neuron]].sum().values[0]
@@ -263,7 +263,8 @@ def keep_metrics(ys_train, ys_val, ys_test, train_loader, val_loader, test_loade
     ys_train_logits, ys_val_logits, ys_test_logits, ys_train_probs, ys_val_probs, ys_test_probs = get_logits_probs(ys_train, ys_val, ys_test, train_loader, val_loader, test_loader, model, device)
     ys_train_logits_null, ys_val_logits_null, ys_test_logits_null, ys_train_probs_null, ys_val_probs_null, ys_test_probs_null = get_logits_probs(ys_train, ys_val, ys_test, train_loader_null, val_loader_null, test_loader_null, model, device)
 
-    # threshold = get_threshold(ys_val_true, ys_val_probs)
+    threshold = get_threshold(ys_val_true, ys_val_probs)
+    
     ys_train_pred, ys_val_pred, ys_test_pred = get_preds(ys_train_probs, ys_val_probs, ys_test_probs, threshold)
     ys_train_pred_null, ys_val_pred_null, ys_test_pred_null = get_preds(ys_train_probs_null, ys_val_probs_null, ys_test_probs_null, threshold)
 
@@ -333,7 +334,7 @@ def train_and_evaluate(eventograms_L23,
                        learning_rate, 
                        device, 
                        out_root, 
-                       threshold
+                       threshold,
                        patience=5): # run_counter, total_runs, out_root):
 
     print(f"Running test: "
@@ -348,7 +349,6 @@ def train_and_evaluate(eventograms_L23,
                 f"{neuron}_ep{num_epochs}_lr{learning_rate}")
     out_dir  = os.path.join(out_root, run_name)
 
-    # —————————— Νεος κώδικας για καθαρό φάκελο ——————————
     if os.path.isdir(out_dir):
         shutil.rmtree(out_dir)
     os.makedirs(out_dir)
@@ -567,6 +567,8 @@ pupil_size = behavioral_pupil_cleared_data_mouse3[['Frames', 'PupilRadius']]
 
 scaler = MinMaxScaler(feature_range=(0, 1))
 
+pupil_size = pupil_size.copy()
+
 pupil_size[['radius_scaled']] = scaler.fit_transform(pupil_size[['PupilRadius']])
 
 
@@ -759,8 +761,8 @@ for hidden_size in args.hidden_sizes:
                     num_epochs      = num_epochs,
                     learning_rate   = learning_rate,
                     device          = device,
-                    out_root        = args.out_root
-                    threshold = get_stat_threshold(eventograms_L23_15_dc_data_mouse3, neuron)
+                    out_root        = args.out_root,
+                    threshold = 0.5#get_stat_threshold(eventograms_L23_15_dc_data_mouse3, neuron)
                 )
                 jobs.append(job)
 
