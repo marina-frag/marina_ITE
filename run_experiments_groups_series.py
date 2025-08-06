@@ -1,6 +1,7 @@
 # cmd.exe /c run_experiments.bat
 # chmod +x run_experiments.sh and ./run_experiments.sh
 
+import random
 from collections import defaultdict
 
 
@@ -57,15 +58,16 @@ def my_cuda():
     return device
 
 # ----- Δημιουργία παραθύρων -----
-def create_sequences(X, y, lookback):
+def create_sequences(X, y, lookback, output_size):
     X = np.asarray(X, dtype=np.uint8)
     y = np.asarray(y, dtype=np.uint8)
     Xs, ys = [], [] 
-    for i in range(len(X) - lookback):
+    #for i in range(len(X) - lookback):
     # Check if this window belongs to a single group
+    for i in range(len(X) - lookback- output_size + 1):
         Xs.append(X[i:i+lookback])
         #ys.append(y[i+lookback])
-        ys.append(y[i+1:i+1+lookback])
+        ys.append(y[i+lookback:i+lookback+output_size])
     return np.stack(Xs), np.array(ys)
 
 def circular_shift_df(dt):
@@ -82,7 +84,8 @@ def train_one_epoch(epoch, loader, model, optimizer, criterion, device):
         xb, yb = xb.to(device), yb.to(device)
         optimizer.zero_grad()
         logits = model(xb)
-        loss   = criterion(logits, yb)#.view_as(logits))
+        # loss  = criterion(logits, yb.view_as(logits))
+        loss = criterion(logits.view(-1), yb.view(-1))  # Flatten both logits and targets
         loss.backward()
         optimizer.step()
         total_loss += loss.item()
@@ -98,27 +101,35 @@ def val_test_one_epoch(loader, model, criterion, device):
         for xb, yb in loader:
             xb, yb = xb.to(device), yb.to(device)
             logits = model(xb)
-            total_loss += criterion(logits, yb)#.view_as(logits)).item()
+            # total_loss += criterion(logits, yb.view_as(logits)).item()
+            total_loss += criterion(logits.view(-1), yb.view(-1)).item()
     avg = total_loss / len(loader)
     print(f"  Val Loss: {avg:.5f}")
     return avg
 def sigmoid(z):
     return 1 / (1 + np.exp(-z))
+
 def compute_metrics(y_true, y_pred, y_probs):
-    # Flatten για να τα κάνουμε 1D
-    y_true = y_true.flatten()
-    y_pred = y_pred.flatten()
-    y_probs = y_probs.flatten()
     # threshold‐dependent
-    acc  = accuracy_score(y_true, y_pred)            # no zero_division here
-    prec = precision_score(y_true, y_pred, zero_division=0)
-    rec  = recall_score   (y_true, y_pred, zero_division=0)
-    f1   = f1_score       (y_true, y_pred, zero_division=0)
+    """
+    y_true, y_pred, y_probs: numpy arrays shape (B, T)
+    Flatten to (B*T,) so that binary metrics can be computed correctly.
+    Returns: (Accuracy, Precision, Recall, Specificity, F1, AP, ROC AUC)
+    """
+    # 1) flatten
+    y_true_flat  = y_true.flatten()
+    y_pred_flat  = y_pred.flatten()
+    y_probs_flat = y_probs.flatten()
+
+    acc  = accuracy_score(y_true_flat, y_pred_flat)            # no zero_division here
+    prec = precision_score(y_true_flat, y_pred_flat, zero_division=0)
+    rec  = recall_score   (y_true_flat, y_pred_flat, zero_division=0)
+    f1   = f1_score       (y_true_flat, y_pred_flat, zero_division=0)
     # threshold‐independent
-    ap   = average_precision_score(y_true, y_probs)
-    auc  = roc_auc_score(y_true, y_probs)
+    ap   = average_precision_score(y_true_flat, y_probs_flat)
+    auc  = roc_auc_score(y_true_flat, y_probs_flat)
     # specificity
-    tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
+    tn, fp, fn, tp = confusion_matrix(y_true_flat, y_pred_flat).ravel()
     spec = tn / (tn + fp + 1e-8)
     return acc, prec, rec, spec, f1, ap, auc
 
@@ -143,9 +154,9 @@ def get_logits_probs(ys_train, ys_val, ys_test, train_loader, val_loader, test_l
             ys_test_logits.append( model(xb.to(device)).cpu())
 
     # 2) Stack into single tensors/arrays
-    ys_train_logits = torch.cat(ys_train_logits, dim=0).numpy()#.flatten()
-    ys_val_logits   = torch.cat(ys_val_logits,   dim=0).numpy()#.flatten()
-    ys_test_logits  = torch.cat(ys_test_logits,  dim=0).numpy()#.flatten()
+    ys_train_logits = torch.cat(ys_train_logits, dim=0).numpy().flatten()
+    ys_val_logits   = torch.cat(ys_val_logits,   dim=0).numpy().flatten()
+    ys_test_logits  = torch.cat(ys_test_logits,  dim=0).numpy().flatten()
 
 
     # 4) Convert to probabilities
@@ -155,32 +166,71 @@ def get_logits_probs(ys_train, ys_val, ys_test, train_loader, val_loader, test_l
 
     return ys_train_logits, ys_val_logits, ys_test_logits, ys_train_probs, ys_val_probs, ys_test_probs#, ys_train_pred, ys_val_pred, ys_test_pred
 
-def get_threshold(ys_val_true, ys_val_probs):
-        # >>threshold<<
-    prec, rec, th = precision_recall_curve(ys_val_true, ys_val_probs)
-    f1_scores = 2 * prec * rec / (prec + rec + 1e-8)
-    best_idx   = f1_scores.argmax()
-    best_threshold = th[best_idx]
-    ld = th[best_idx]
-    #print("Best Val F1 threshold:", best_threshold, "→ F1:", f1_scores[best_idx])
 
-    # # βάλε το threshold σου στο επόμενο βήμα
-    threshold = best_threshold
+
+
+
+# def get_threshold(ys_val_true, ys_val_probs):
+#         # >>threshold<<
+#     prec, rec, th = precision_recall_curve(ys_val_true, ys_val_probs)
+#     f1_scores = 2 * prec * rec / (prec + rec + 1e-8)
+#     best_idx   = f1_scores.argmax()
+#     best_threshold = th[best_idx]
+#     ld = th[best_idx]
+#     #print("Best Val F1 threshold:", best_threshold, "→ F1:", f1_scores[best_idx])
+
+#     # # βάλε το threshold σου στο επόμενο βήμα
+#     threshold = best_threshold
         
-    # threshold = 0.5
-    return threshold
-def get_stat_threshold(eventograms_L23, neuron):
-    count_ones = eventograms_L23[[neuron]].sum().values[0]
-    num_of_frames = len(eventograms_L23)
-    threshold = count_ones / num_of_frames
-    return threshold
+#     # threshold = 0.5
+#     return threshold
 
-def get_preds(ys_train_probs, ys_val_probs, ys_test_probs, threshold):
-    # (Optional) 5) Hard 0/1 preds at threshold 0.5
-    ys_train_pred = (ys_train_probs > threshold).astype(int)
-    ys_val_pred   = (ys_val_probs   > threshold).astype(int)
-    ys_test_pred  = (ys_test_probs  > threshold).astype(int)
-    return ys_train_pred, ys_val_pred, ys_test_pred
+# def get_preds(ys_train_probs, ys_val_probs, ys_test_probs, threshold):
+#     # (Optional) 5) Hard 0/1 preds at threshold 0.5
+#     ys_train_pred = (ys_train_probs > threshold).astype(int)
+#     ys_val_pred   = (ys_val_probs   > threshold).astype(int)
+#     ys_test_pred  = (ys_test_probs  > threshold).astype(int)
+#     return ys_train_pred, ys_val_pred, ys_test_pred
+
+
+
+
+def get_stat_preds(
+    ys_train_true, ys_train_probs,
+    ys_val_true,   ys_val_probs,
+    ys_test_true,  ys_test_probs
+):
+    """
+    Για κάθε split (train, val, test):
+      1) Flatάρουμε true & prob arrays σχήματος (B, T) → (B*T,)
+      2) Υπολογίζουμε k = συνολικά 1s στα flat_true
+      3) Βρίσκουμε threshold = k-th largest prob στο flat_probs
+      4) Δημιουργούμε flat_preds με top-k =1, υπόλοιπα 0
+      5) Επαναφέρουμε σχήμα (B, T)
+    Επιστρέφει τρεις πίνακες binary predictions (B, T).
+    """
+    def topk_binary_flat(flat_true, flat_probs):
+        k = int(flat_true.sum())
+        if k <= 0:
+            return np.zeros_like(flat_probs, dtype=int)
+        if k >= flat_probs.size:
+            return np.ones_like(flat_probs, dtype=int)
+        thresh = np.partition(flat_probs, -k)[-k]
+        return (flat_probs >= thresh).astype(int)
+
+    def split_preds(ys_true, ys_probs):
+        B, T = ys_true.shape
+        flat_true = ys_true.flatten()
+        flat_probs = ys_probs.flatten()
+        flat_pred = topk_binary_flat(flat_true, flat_probs)
+        return flat_pred.reshape(B, T)
+
+    ys_pred_train = split_preds(ys_train_true, ys_train_probs)
+    ys_pred_val   = split_preds(ys_val_true,   ys_val_probs)
+    ys_pred_test  = split_preds(ys_test_true,  ys_test_probs)
+
+    return ys_pred_train, ys_pred_val, ys_pred_test
+
 
 def create_datasets(Xs_train, ys_train, Xs_val, ys_val, Xs_test, ys_test, Xs_null_train, Xs_null_val, Xs_null_test):
     train_dataset = TensorDataset(Xs_train, ys_train)
@@ -203,8 +253,11 @@ def create_datasets(Xs_train, ys_train, Xs_val, ys_val, Xs_test, ys_test, Xs_nul
     return train_loader, val_loader, test_loader, train_loader_null, val_loader_null, test_loader_null
 
 def sequences_to_tensors(Xs_train, ys_train, Xs_val, ys_val, Xs_test, ys_test, Xs_null_train, Xs_null_val, Xs_null_test):
+  
     Xs_train = torch.tensor(Xs_train, dtype=torch.float32)
     ys_train = torch.tensor(ys_train, dtype=torch.float32)#.unsqueeze(1)
+
+
 
     Xs_val = torch.tensor(Xs_val, dtype=torch.float32)
     ys_val = torch.tensor(ys_val, dtype=torch.float32)#.unsqueeze(1)
@@ -219,114 +272,74 @@ def sequences_to_tensors(Xs_train, ys_train, Xs_val, ys_val, Xs_test, ys_test, X
     Xs_null_test = torch.tensor(Xs_null_test, dtype=torch.float32)
     return Xs_train, ys_train, Xs_val, ys_val, Xs_test, ys_test, Xs_null_train, Xs_null_val, Xs_null_test
 
-def plot_learning_curves(train_losses, val_losses, final_test_loss,
-                         null_train_losses, null_val_losses, null_final_test_loss, out_dir):
-    return
-    # Original palette (blues)
-    orig_colors = sns.color_palette("Blues", 3)
-
-    # Null palette: sample 5 from YlOrBr, then take the first 3 (yellow→light orange)
-    null_colors = sns.color_palette("YlOrBr", 5)[:3]
-
-    plt.figure(figsize=(12, 6))
-
-    # ─── Original model (all solid) ───
-    plt.plot(train_losses, label='Train', color=orig_colors[0], linewidth=2, linestyle='-')
-    plt.plot(val_losses,   label='Val',   color=orig_colors[1], linewidth=2, linestyle='-')
-    plt.hlines(final_test_loss, 0, num_epochs-1,
-            label=f'Test = {final_test_loss:.3f}',
-            colors=[orig_colors[2]], linestyles='-', linewidth=2)
-
-    # ─── Null model (all solid) ───
-    plt.plot(null_train_losses, label='Null Train', color=null_colors[0], linewidth=2, linestyle='-')
-    plt.plot(null_val_losses,   label='Null Val',   color=null_colors[1], linewidth=2, linestyle='-')
-    plt.hlines(null_final_test_loss, 0, num_epochs-1,
-            label=f'Null Test = {null_final_test_loss:.3f}',
-            colors=[null_colors[2]], linestyles='-', linewidth=2)
-
-    plt.xlabel("Epoch", fontsize=14)
-    plt.ylabel("Loss",  fontsize=14)
-    plt.title("Learning Curves: Original vs. Null Models")
-    plt.legend(fontsize=12)
-    plt.grid(True)
-    plt.tight_layout()
-    #plt.show()
-    plt.savefig(os.path.join(out_dir, "average_loss.png"))
-    plt.close()
 
 
-def keep_metrics(ys_train, ys_val, ys_test, train_loader, val_loader, test_loader,
-                 ys_train_null, ys_val_null, ys_test_null, train_loader_null, val_loader_null, test_loader_null, out_dir, run_name, model, device, threshold):
-    ys_train_true = ys_train
-    ys_val_true = ys_val
-    ys_test_true = ys_test
+def keep_metrics(
+    ys_train, ys_val, ys_test,
+    train_loader, val_loader, test_loader,
+    ys_train_null, ys_val_null, ys_test_null,
+    train_loader_null, val_loader_null, test_loader_null,
+    out_root, run_name, model, device
+):
+    
+    # 1) Get logits and probabilities for true & null sets
+    ys_train_logits, ys_val_logits, ys_test_logits, \
+    ys_train_probs,  ys_val_probs,  ys_test_probs = \
+        get_logits_probs(
+            ys_train, ys_val, ys_test,
+            train_loader, val_loader, test_loader,
+            model, device
+        )
+    ys_train_logits_null, ys_val_logits_null, ys_test_logits_null, \
+    ys_train_probs_null,  ys_val_probs_null,  ys_test_probs_null = \
+        get_logits_probs(
+            ys_train_null, ys_val_null, ys_test_null,
+            train_loader_null, val_loader_null, test_loader_null,
+            model, device
+        )
+    # threshold = get_threshold(ys_val, ys_val_probs)
 
-    ys_train_logits, ys_val_logits, ys_test_logits, ys_train_probs, ys_val_probs, ys_test_probs = get_logits_probs(ys_train, ys_val, ys_test, train_loader, val_loader, test_loader, model, device)
-    ys_train_logits_null, ys_val_logits_null, ys_test_logits_null, ys_train_probs_null, ys_val_probs_null, ys_test_probs_null = get_logits_probs(ys_train, ys_val, ys_test, train_loader_null, val_loader_null, test_loader_null, model, device)
+    # # 2) Get predictions using the threshold ys_train_probs, ys_val_probs, ys_test_probs, threshold
+    # ys_train_pred,  ys_val_pred, ys_test_pred     = get_preds(ys_train_probs, ys_val_probs, ys_test_probs, threshold)
+    # ys_train_pred_null, ys_val_pred_null, ys_test_pred_null = get_preds(ys_train_probs_null, ys_val_probs_null, ys_test_probs_null, threshold)
+    ys_train_pred,  ys_val_pred, ys_test_pred     = get_stat_preds(ys_train, ys_train_probs, ys_val,   ys_val_probs, ys_test,  ys_test_probs)
+    ys_train_pred_null, ys_val_pred_null, ys_test_pred_null = get_stat_preds(ys_train, ys_train_probs_null, ys_val,   ys_val_probs_null, ys_test,  ys_test_probs_null)
 
-     #get_threshold(ys_val_true, ys_val_probs)
+    # 3) Compute metrics for each split
+    train_metrics      = compute_metrics(ys_train, ys_train_pred, ys_train_probs)
+    val_metrics        = compute_metrics(ys_val,   ys_val_pred,   ys_val_probs)
+    test_metrics       = compute_metrics(ys_test,  ys_test_pred,  ys_test_probs)
+    null_train_metrics = compute_metrics(ys_train, ys_train_pred_null, ys_train_probs_null)
+    null_val_metrics   = compute_metrics(ys_val,   ys_val_pred_null,   ys_val_probs_null)
+    null_test_metrics  = compute_metrics(ys_test,  ys_test_pred_null,  ys_test_probs_null)
 
-    ys_train_pred, ys_val_pred, ys_test_pred = get_preds(ys_train_probs, ys_val_probs, ys_test_probs, threshold)
-    ys_train_pred_null, ys_val_pred_null, ys_test_pred_null = get_preds(ys_train_probs_null, ys_val_probs_null, ys_test_probs_null, threshold)
-
-
-    train_metrics      = compute_metrics(ys_train_true,      ys_train_pred,      ys_train_probs)
-    val_metrics        = compute_metrics(ys_val_true,        ys_val_pred,        ys_val_probs)
-    test_metrics       = compute_metrics(ys_test_true,       ys_test_pred,       ys_test_probs)
-    null_train_metrics = compute_metrics(ys_train_true, ys_train_pred_null, ys_train_probs_null)
-    null_val_metrics   = compute_metrics(ys_val_true,   ys_val_pred_null,   ys_val_probs_null)
-    null_test_metrics  = compute_metrics(ys_test_true,  ys_test_pred_null,  ys_test_probs_null)
-
+    # 4) Build a single summary DataFrame
     metrics_names = ["Accuracy", "Precision", "Recall", "Specificity", "F1", "AP", "ROC AUC"]
+    splits = ["Train", "Val", "Test", "Null Train", "Null Val", "Null Test"]
+    all_vals = [
+        train_metrics, val_metrics, test_metrics,
+        null_train_metrics, null_val_metrics, null_test_metrics
+    ]
 
-    train_vals      = train_metrics
-    val_vals        = val_metrics
-    test_vals       = test_metrics
-    null_train_vals = null_train_metrics
-    null_val_vals   = null_val_metrics
-    null_test_vals  = null_test_metrics
+    df_metrics = pd.DataFrame(
+        [[run_name, split] + list(vals) for split, vals in zip(splits, all_vals)],
+        columns=["run", "split"] + metrics_names
+    )
 
-    x     = np.arange(len(metrics_names))
-    width = 0.15
-
-
-    df_metrics = pd.DataFrame({
-    "split":      ["Train","Val","Test","Null Train","Null Val","Null Test"],
-            "Accuracy":   [*train_metrics[0:1], *val_metrics[0:1], *test_metrics[0:1],
-                        *null_train_metrics[0:1], *null_val_metrics[0:1], *null_test_metrics[0:1]],
-            "Precision":  [train_metrics[1], val_metrics[1], test_metrics[1],
-                        null_train_metrics[1], null_val_metrics[1], null_test_metrics[1]],
-            "Recall":     [train_metrics[2], val_metrics[2], test_metrics[2],
-                        null_train_metrics[2], null_val_metrics[2], null_test_metrics[2]],
-            "Specificity":[train_metrics[3], val_metrics[3], test_metrics[3],
-                        null_train_metrics[3], null_val_metrics[3], null_test_metrics[3]],
-            "F1":         [train_metrics[4], val_metrics[4], test_metrics[4],
-                        null_train_metrics[4], null_val_metrics[4], null_test_metrics[4]],
-            "AP":         [train_metrics[5], val_metrics[5], test_metrics[5],
-                        null_train_metrics[5], null_val_metrics[5], null_test_metrics[5]],
-            "ROC AUC":    [train_metrics[6], val_metrics[6], test_metrics[6],
-                        null_train_metrics[6], null_val_metrics[6], null_test_metrics[6]],
-        })
-    df_metrics.to_csv(os.path.join(out_dir, "metrics_table.csv"), index=False)
-    # 1) Read or initialize the master summary file
-    summary_path = os.path.join(args.out_root, "all_runs_summary.csv")
+    # 5) Append to the master summary file
+    summary_path = os.path.join(out_root, "all_runs_summary.csv")
     if not os.path.exists(summary_path):
-        # write header
-        with open(summary_path, "w") as f:
-            f.write("run,split,Accuracy,Precision,Recall,Specificity,F1,AP,ROC AUC\n")
+        df_metrics.to_csv(summary_path, index=False)
+    else:
+        df_metrics.to_csv(summary_path, mode="a", header=False, index=False)
 
-    # 2) Append this run’s metrics_table.csv into the master summary
-    metrics_table = pd.read_csv(os.path.join(out_dir, "metrics_table.csv"))
-    # prepend a column for the run name
-    metrics_table.insert(0, "run", run_name)
-    # append to all_runs_summary.csv
-    metrics_table.to_csv(summary_path, mode="a", header=False, index=False)
     print(f"Finished {run_name}")
 
 #>>loop function
 def train_and_evaluate(eventograms_L23, 
                        eventograms_L4, 
                        neuron_groups_dict, 
+                       neuron_groups_dict_null,
                        hidden_size, 
                        lookback, 
                        neuron, 
@@ -334,26 +347,23 @@ def train_and_evaluate(eventograms_L23,
                        learning_rate, 
                        device, 
                        out_root, 
-                       output_size,
-                       threshold,
-                       patience=5): # run_counter, total_runs, out_root):
+                       output_size, # 4 classes
+                       patience): # run_counter, total_runs, out_root):
 
     print(f"Running test: "
           f"hidden_size={hidden_size}, "
             f"lookback={lookback}, "
             f"neuron={neuron}, "
             f"epochs={num_epochs}, "
+            f"output_size={output_size}, "
             f"lr={learning_rate}"
         )
-
+    
     run_name = (f"hs{hidden_size}_lb{lookback}_"
-                f"{neuron}_ep{num_epochs}_lr{learning_rate}")
-    out_dir  = os.path.join(out_root, run_name)
+                f"{neuron}_ep{num_epochs}_os{output_size}_lr{learning_rate}")
+    out_dir  = out_root#os.path.join(out_root, run_name)
 
-    # —————————— Νεος κώδικας για καθαρό φάκελο ——————————
-    if os.path.isdir(out_dir):
-        shutil.rmtree(out_dir)
-    os.makedirs(out_dir)
+
     # count ones in all of eventograms_L4_15_dc_data_mouse3[[neuron]]
     
     count_ones = eventograms_L23[[neuron]].sum().values[0]
@@ -364,8 +374,10 @@ def train_and_evaluate(eventograms_L23,
     nid = int(neuron.lstrip("V"))
     l4_ids = neuron_groups_dict.get(nid, [])
     l4_cols = [f"V{lid}" for lid in l4_ids if f"V{lid}" in eventograms_L4.columns]
+    l4_ids_null = neuron_groups_dict_null.get(nid, [])
+    l4_cols_null = [f"V{lid}" for lid in l4_ids_null if f"V{lid}" in eventograms_L4.columns]
     print(f"[{neuron}] using {len(l4_cols)} L4 cols")
-    #
+
 
     df = pd.concat([ eventograms_L23[[neuron]], eventograms_L4[l4_cols] ], axis=1)
 
@@ -373,7 +385,11 @@ def train_and_evaluate(eventograms_L23,
     X = df
     y = df[neuron]
 
-    X_null = circular_shift_df(X)
+    df_null = pd.concat([ eventograms_L23[[neuron]], eventograms_L4[l4_cols_null] ], axis=1)
+
+    print(df_null.shape)  # should be (23070, 1193) for L23 and should be (23070, 2670) for L4
+    X_null = df_null
+    X_null = circular_shift_df(X_null)
 
     train_frac = 0.80
     val_frac   = 0.15
@@ -396,9 +412,9 @@ def train_and_evaluate(eventograms_L23,
     print(f"X_val.shape:   {X_val.shape},   y_val.shape:   {y_val.shape}")
     print(f"X_test.shape:  {X_test.shape},  y_test.shape:  {y_test.shape}")
 
-    Xs_train, ys_train = create_sequences(X_train, y_train, lookback)
-    Xs_val, ys_val = create_sequences(X_val, y_val, lookback)
-    Xs_test, ys_test = create_sequences(X_test, y_test, lookback)
+    Xs_train, ys_train = create_sequences(X_train, y_train, lookback, output_size)
+    Xs_val, ys_val = create_sequences(X_val, y_val, lookback, output_size)
+    Xs_test, ys_test = create_sequences(X_test, y_test, lookback, output_size)
     #(for Xs_train.shape 23070 is all frames we use train_fac * 23070 so 18456 frames as training)
 
 
@@ -411,10 +427,11 @@ def train_and_evaluate(eventograms_L23,
     X_null_test  = X_null[val_end:]
 
 
-    Xs_null_train, ys_train = create_sequences(X_null_train, y_train, lookback)
-    Xs_null_val, ys_val = create_sequences(X_null_val, y_val, lookback)
-    Xs_null_test, ys_test = create_sequences(X_null_test, y_test, lookback)
+    Xs_null_train, ys_train = create_sequences(X_null_train, y_train, lookback, output_size)
+    Xs_null_val, ys_val = create_sequences(X_null_val, y_val, lookback, output_size)
+    Xs_null_test, ys_test = create_sequences(X_null_test, y_test, lookback, output_size)
 
+    #return
 
     Xs_train, ys_train, Xs_val, ys_val, Xs_test, ys_test, Xs_null_train, Xs_null_val, Xs_null_test = sequences_to_tensors(
         Xs_train, ys_train, Xs_val, ys_val, Xs_test, ys_test, Xs_null_train, Xs_null_val, Xs_null_test
@@ -435,7 +452,7 @@ def train_and_evaluate(eventograms_L23,
         break  # Just show the first batch
 
     input_size = X.shape[1]
-    print(f"Input size: {input_size}, Hidden size: {hidden_size}, Lookback: {lookback}")
+    print(f"Input size: {input_size}, Hidden size: {hidden_size}, Output size: {output_size}, Lookback: {lookback}")
    
     class LSTMNetwork(nn.Module):
         def __init__(self, input_size=input_size, hidden_size= hidden_size, num_layers=num_layers, output_size=output_size):
@@ -445,14 +462,16 @@ def train_and_evaluate(eventograms_L23,
 
         def forward(self, x):
             out, _ = self.lstm(x)
-            #out = out[:, -1, :]
-            logits = self.fc(out)
-            return logits.squeeze(-1)               # raw scores (“logits”)
+            # out = out[:, -1, :]
+            # logits = self.fc(out)
+            h_last = out[:, -1, :]  # last time step
+            logits = self.fc(h_last)  # fully connected layer
+            return logits               # raw scores (“logits”)
     model = LSTMNetwork().to(device)
     torch.cuda.empty_cache()
 
     #criterion = nn.BCEWithLogitsLoss() # internally applies sigmoid + BCELoss
-
+    # #didn't do any better 
     # eps = 1e-5
     # # num_of_frames - count_ones gives negatives; count_ones + eps avoids division by zero
     # pos_weights = torch.tensor(
@@ -461,14 +480,15 @@ def train_and_evaluate(eventograms_L23,
     #     device=device
     # )
 
-    # criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weights)
+    criterion = nn.BCEWithLogitsLoss()# pos_weight=pos_weights)
 
 
-    criterion = nn.CrossEntropyLoss() # for multi-class classification
+    #criterion = nn.MSELoss()
 
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     display(model)  
 
+    #return
 
 
     # >>run
@@ -493,7 +513,7 @@ def train_and_evaluate(eventograms_L23,
             best_val_loss = val_loss
             epochs_no_improve = 0
             # (Optional) Save a checkpoint of the best model
-            torch.save(model.state_dict(), os.path.join(out_dir, 'best_model.pt'))
+            #torch.save(model.state_dict(), os.path.join(out_dir, 'best_model.pt'))
         else:
             epochs_no_improve += 1
             print(f"  ↳ No improvement for {epochs_no_improve} epoch(s).")
@@ -503,7 +523,7 @@ def train_and_evaluate(eventograms_L23,
             break
 
     # 4) After stopping, you can load the best model before final test:
-    model.load_state_dict(torch.load(os.path.join(out_dir, 'best_model.pt')))
+    #model.load_state_dict(torch.load(os.path.join(out_dir, 'best_model.pt')))
     final_test_loss = val_test_one_epoch(test_loader, model, criterion, device)
 
 
@@ -523,11 +543,7 @@ def train_and_evaluate(eventograms_L23,
         if null_val_loss < best_null_val_loss:
             best_null_val_loss = null_val_loss
             epochs_no_improve_null = 0
-            # save your null‐model checkpoint
-            torch.save(
-                model.state_dict(),
-                os.path.join(out_dir, 'best_model_null.pt')
-            )
+          
         else:
             epochs_no_improve_null += 1
             print(f"  ↳ Null: no improvement for {epochs_no_improve_null} epoch(s).")
@@ -540,18 +556,18 @@ def train_and_evaluate(eventograms_L23,
             break
 
     # 4) Load the best null‐model before final test
-    model.load_state_dict(
-        torch.load(os.path.join(out_dir, 'best_model_null.pt'))
-    )
+    # model.load_state_dict(
+    #     torch.load(os.path.join(out_dir, 'best_model_null.pt'))
+    # )
     null_final_test_loss = val_test_one_epoch(test_loader_null, model, criterion, device)
 
     #>>stop
-    plot_learning_curves(train_losses, val_losses, final_test_loss,
-                         null_train_losses, null_val_losses, null_final_test_loss, out_dir)                         
+
+                                               
     return keep_metrics(
         ys_train, ys_val, ys_test, train_loader, val_loader, test_loader,
         ys_train, ys_val, ys_test, train_loader_null, val_loader_null, test_loader_null,
-        out_dir, run_name, model, device, threshold
+        out_dir, run_name, model, device
     )
 
 
@@ -630,6 +646,20 @@ for a, b in zip(z_score_L234_500shifts_0_dt_data_mouse3_more_than_4_l23A_L4B['Ne
 # και αν θες κανονικό dict
 neuron_groups_dict = dict(neuron_groups_dict)
 
+
+# φτιάχνουμε το null-λεξικό
+neuron_groups_dict_null = {}
+for a, true_bs in neuron_groups_dict.items():
+    k = len(true_bs)
+    # επιλέγουμε k τυχαία από όλους τους L4 εκτός των πραγματικών
+    pool = list(l4_ids - true_bs)
+    null_bs = set(random.sample(pool, k))
+    neuron_groups_dict_null[a] = null_bs
+
+# αν θες να είναι κι αυτό defaultdict(set):
+neuron_groups_dict_null = defaultdict(set, neuron_groups_dict_null)
+
+
 l4_ids_groups = z_score_L234_500shifts_0_dt_data_mouse3_more_than_4_l23A_L4B['NeuronB'].unique().tolist() 
 l23_ids_groups = z_score_L234_500shifts_0_dt_data_mouse3_more_than_4_l23A_L4B['NeuronA'].unique().tolist()
 
@@ -678,7 +708,7 @@ num_layers = 1
 # Ορίζουμε πόσοι workers
 NUM_WORKERS = max(os.cpu_count() - 1, 1) 
 num_epochs = 100
-output_size = 3  # since we are predicting a single neuron activity
+patience = 5
 # #----------------------
 # lookback = 5
 # neuron = "V8213"
@@ -694,27 +724,38 @@ parser.add_argument("--lookbacks",    nargs="+", type=int, default=[10])
 # parser.add_argument("--epochs",       nargs="+", type=int, default=[8])
 parser.add_argument("--lr",           nargs="+", type=float, default=[0.001])
 # parser.add_argument("--batch_sizes",   type=int,   default=1024)
+parser.add_argument("--output_sizes", nargs="+", type=int, default=[4])  # 4 classes
 parser.add_argument("--out_root",     type=str,   default="results")
 args = parser.parse_args()
 
+if os.path.isdir(args.out_root):
+    shutil.rmtree(args.out_root)
+os.makedirs(args.out_root)
+
 #loop
-# for hidden_size in args.hidden_sizes:
-#     for lookback in args.lookbacks:
-#         for learning_rate in args.lr:
-#             desc = (f"hs={hidden_size} lb={lookback} "
-#                     f"ep={num_epochs} lr={learning_rate}")
-#             train_and_evaluate(
-#                 eventograms_L23 = eventograms_L23_15_dc_data_mouse3,
-#                 eventograms_L4  = eventograms_L4_15_dc_data_mouse3,
-#                 neuron_groups_dict = neuron_groups_dict,
-#                 hidden_size     = hidden_size,
-#                 lookback        = lookback,
-#                 neuron          = "V368",  # or any other neuron you want to test
-#                 num_epochs      = num_epochs,
-#                 learning_rate   = learning_rate,
-#                 device          = device,
-#                 out_root        = args.out_root
-#             )   
+for hidden_size in args.hidden_sizes:
+    for lookback in args.lookbacks:
+        for output_size in args.output_sizes:
+            for learning_rate in args.lr:
+                desc = (f"hs={hidden_size} lb={lookback} "
+                        f"ep={num_epochs} os={output_size} lr={learning_rate}")
+                neuron = "V368"  # or any other neuron you want to test
+
+                train_and_evaluate(
+                    eventograms_L23     = eventograms_L23_15_dc_data_mouse3,
+                    eventograms_L4      = eventograms_L4_15_dc_data_mouse3,
+                    neuron_groups_dict  = neuron_groups_dict,
+                    neuron_groups_dict_null = neuron_groups_dict_null,
+                    hidden_size         = hidden_size,
+                    lookback            = lookback,
+                    neuron              = neuron,  # or any other neuron you want to test
+                    num_epochs          = num_epochs,
+                    learning_rate       = learning_rate,
+                    device              = device,
+                    out_root            = args.out_root,
+                    output_size         = output_size,
+                    patience            = patience
+                )   
 
 
 
@@ -723,42 +764,44 @@ args = parser.parse_args()
 
 
 
-#loop
-for hidden_size in args.hidden_sizes:
-    for lookback in args.lookbacks:
-        for learning_rate in args.lr:
-            desc = (f"hs={hidden_size} lb={lookback} "
-                    f"ep={num_epochs} lr={learning_rate}")
-            
-            # φτιάχνουμε τα partials για κάθε νευρώνα
-            jobs = []
-            for nid in l23_ids_groups:
-                neuron = f"V{nid}"
-                job = partial(
-                    train_and_evaluate,
-                    eventograms_L23 = eventograms_L23_15_dc_data_mouse3,
-                    eventograms_L4  = eventograms_L4_15_dc_data_mouse3,
-                    neuron_groups_dict = neuron_groups_dict,
-                    hidden_size     = hidden_size,
-                    lookback        = lookback,
-                    neuron          = neuron,
-                    num_epochs      = num_epochs,
-                    learning_rate   = learning_rate,
-                    device          = device,
-                    out_root        = args.out_root,
-                    output_size     = output_size,
-                    threshold         = get_stat_threshold(eventograms_L23_15_dc_data_mouse3, neuron)
-                )
-                jobs.append(job)
+# # #loop
+# for hidden_size in args.hidden_sizes:
+#     for lookback in args.lookbacks:
+#         for output_size in args.output_sizes:
+#             for learning_rate in args.lr:
+#                 desc = (f"hs={hidden_size} lb={lookback} "
+#                         f"ep={num_epochs} lr={learning_rate}")
+                
+#                 # φτιάχνουμε τα partials για κάθε νευρώνα
+#                 jobs = []
+#                 for nid in l23_ids_groups:
+#                     neuron = f"V{nid}"
+#                     job = partial(
+#                         train_and_evaluate,
+#                         eventograms_L23     = eventograms_L23_15_dc_data_mouse3,
+#                         eventograms_L4      = eventograms_L4_15_dc_data_mouse3,
+#                         neuron_groups_dict  = neuron_groups_dict,
+#                         neuron_groups_dict_null = neuron_groups_dict_null,
+#                         hidden_size         = hidden_size,
+#                         lookback            = lookback,
+#                         neuron              = neuron,  # or any other neuron you want to test
+#                         num_epochs          = num_epochs,
+#                         learning_rate       = learning_rate,
+#                         device              = device,
+#                         out_root            = args.out_root,
+#                         output_size         = output_size,
+#                         patience            = patience
+#                     )   
+#                     jobs.append(job)
 
-            # parallel map με tqdm
-            with ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
-                # executor.map θα τρέξει τα job() για κάθε νευρώνα
-                for _ in tqdm(executor.map(lambda fn: fn(), jobs),
-                                total=len(jobs),
-                                desc=desc,
-                                unit="neuron"):
-                    pass
+#                 # parallel map με tqdm
+#                 with ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
+#                     # executor.map θα τρέξει τα job() για κάθε νευρώνα
+#                     for _ in tqdm(executor.map(lambda fn: fn(), jobs),
+#                                     total=len(jobs),
+#                                     desc=desc,
+#                                     unit="neuron"):
+#                         pass
 
 
 

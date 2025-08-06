@@ -6,7 +6,7 @@ import os
 from scipy import stats
 
 
-csv_path = "statistics/all_runs_summary_group_pupil_size_stat_threshold.csv"
+csv_path = "statistics/all_runs_summary_series_corrected.csv"
 df = pd.read_csv(csv_path)
 
 output_path = "results"

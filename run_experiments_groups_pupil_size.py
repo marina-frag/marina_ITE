@@ -181,6 +181,31 @@ def get_preds(ys_train_probs, ys_val_probs, ys_test_probs, threshold):
     ys_test_pred  = (ys_test_probs  > threshold).astype(int)
     return ys_train_pred, ys_val_pred, ys_test_pred
 
+# def get_stat_preds(eventograms_L23, neuron, ys_train_probs, ys_val_probs, ys_test_probs):
+#     # 1) How many ones are in the ground truth?
+#     #    eventograms_L23 is a DataFrame; neuron is the column name
+#     count_ones = int(eventograms_L23[neuron].sum())
+#     def topk_binary(probs, k):
+#         """
+#         Return a binary array of same shape as `probs`
+#         where the top-k largest entries are marked 1, rest 0.
+#         """
+#         if k <= 0:
+#             return np.zeros_like(probs, dtype=int)
+#         if k >= len(probs):
+#             return np.ones_like(probs, dtype=int)
+#         # find threshold: the k-th largest prob
+#         thresh = np.partition(probs, -k)[-k]
+#         return (probs >= thresh).astype(int)
+#     ys_pred_train = topk_binary(ys_train_probs, count_ones)
+#     ys_pred_val   = topk_binary(ys_val_probs,   count_ones)
+#     ys_pred_test  = topk_binary(ys_test_probs,  count_ones)
+#     return ys_pred_train, ys_pred_val, ys_pred_test
+
+    
+    
+
+
 def create_datasets(Xs_train, ys_train, Xs_val, ys_val, Xs_test, ys_test, Xs_null_train, Xs_null_val, Xs_null_test):
     train_dataset = TensorDataset(Xs_train, ys_train)
     train_loader = DataLoader(train_dataset, batch_size, shuffle=False)
