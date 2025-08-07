@@ -1,6 +1,6 @@
 # cmd.exe /c run_experiments.bat
 # chmod +x run_experiments.sh and ./run_experiments.sh
-# sensitivity analysis test 1 trying to fix null
+# sensitivity analysis test 4 threshold
 
 import random
 from collections import defaultdict
@@ -171,27 +171,27 @@ def get_logits_probs(ys_train, ys_val, ys_test, train_loader, val_loader, test_l
 
 
 
-# def get_threshold(ys_val_true, ys_val_probs):
-#         # >>threshold<<
-#     prec, rec, th = precision_recall_curve(ys_val_true, ys_val_probs)
-#     f1_scores = 2 * prec * rec / (prec + rec + 1e-8)
-#     best_idx   = f1_scores.argmax()
-#     best_threshold = th[best_idx]
-#     ld = th[best_idx]
-#     #print("Best Val F1 threshold:", best_threshold, "→ F1:", f1_scores[best_idx])
+def get_threshold(ys_val_true, ys_val_probs):
+        # >>threshold<<
+    prec, rec, th = precision_recall_curve(ys_val_true, ys_val_probs)
+    f1_scores = 2 * prec * rec / (prec + rec + 1e-8)
+    best_idx   = f1_scores.argmax()
+    best_threshold = th[best_idx]
+    ld = th[best_idx]
+    #print("Best Val F1 threshold:", best_threshold, "→ F1:", f1_scores[best_idx])
 
-#     # # βάλε το threshold σου στο επόμενο βήμα
-#     threshold = best_threshold
+    # # βάλε το threshold σου στο επόμενο βήμα
+    threshold = best_threshold
         
-#     # threshold = 0.5
-#     return threshold
+    # threshold = 0.5
+    return threshold
 
-# def get_preds(ys_train_probs, ys_val_probs, ys_test_probs, threshold):
-#     # (Optional) 5) Hard 0/1 preds at threshold 0.5
-#     ys_train_pred = (ys_train_probs > threshold).astype(int)
-#     ys_val_pred   = (ys_val_probs   > threshold).astype(int)
-#     ys_test_pred  = (ys_test_probs  > threshold).astype(int)
-#     return ys_train_pred, ys_val_pred, ys_test_pred
+def get_preds(ys_train_probs, ys_val_probs, ys_test_probs, threshold):
+    # (Optional) 5) Hard 0/1 preds at threshold 0.5
+    ys_train_pred = (ys_train_probs > threshold).astype(int)
+    ys_val_pred   = (ys_val_probs   > threshold).astype(int)
+    ys_test_pred  = (ys_test_probs  > threshold).astype(int)
+    return ys_train_pred, ys_val_pred, ys_test_pred
 
 
 
@@ -231,6 +231,7 @@ def get_stat_preds(
     ys_pred_test  = split_preds(ys_test_true,  ys_test_probs)
 
     return ys_pred_train, ys_pred_val, ys_pred_test
+
 
 
 def create_datasets(Xs_train, ys_train, Xs_val, ys_val, Xs_test, ys_test, Xs_null_train, Xs_null_val, Xs_null_test):
@@ -301,10 +302,10 @@ def keep_metrics(
     # threshold = get_threshold(ys_val, ys_val_probs)
 
     # # 2) Get predictions using the threshold ys_train_probs, ys_val_probs, ys_test_probs, threshold
-    # ys_train_pred,  ys_val_pred, ys_test_pred     = get_preds(ys_train_probs, ys_val_probs, ys_test_probs, threshold)
-    # ys_train_pred_null, ys_val_pred_null, ys_test_pred_null = get_preds(ys_train_probs_null, ys_val_probs_null, ys_test_probs_null, threshold)
-    ys_train_pred,  ys_val_pred, ys_test_pred     = get_stat_preds(ys_train, ys_train_probs, ys_val,   ys_val_probs, ys_test,  ys_test_probs)
-    ys_train_pred_null, ys_val_pred_null, ys_test_pred_null = get_stat_preds(ys_train, ys_train_probs_null, ys_val,   ys_val_probs_null, ys_test,  ys_test_probs_null)
+    ys_train_pred,  ys_val_pred, ys_test_pred     = get_preds(ys_train_probs, ys_val_probs, ys_test_probs, threshold)
+    ys_train_pred_null, ys_val_pred_null, ys_test_pred_null = get_preds(ys_train_probs_null, ys_val_probs_null, ys_test_probs_null, threshold)
+    # ys_train_pred,  ys_val_pred, ys_test_pred     = get_stat_preds(ys_train, ys_train_probs, ys_val,   ys_val_probs, ys_test,  ys_test_probs)
+    # ys_train_pred_null, ys_val_pred_null, ys_test_pred_null = get_stat_preds(ys_train, ys_train_probs_null, ys_val,   ys_val_probs_null, ys_test,  ys_test_probs_null)
 
     # 3) Compute metrics for each split
     train_metrics      = compute_metrics(ys_train, ys_train_pred, ys_train_probs)
@@ -337,7 +338,8 @@ def keep_metrics(
     print(f"Finished {run_name}")
 
 #>>loop function
-def train_and_evaluate(eventograms_L23, 
+def train_and_evaluate(threshold,
+                       eventograms_L23, 
                        eventograms_L4, 
                        neuron_groups_dict, 
                        neuron_groups_dict_null,
@@ -352,7 +354,8 @@ def train_and_evaluate(eventograms_L23,
                        patience): # run_counter, total_runs, out_root):
 
     print(f"Running test: "
-          f"hidden_size={hidden_size}, "
+            f"threshold={threshold}, "
+            f"hidden_size={hidden_size}, "
             f"lookback={lookback}, "
             f"neuron={neuron}, "
             f"epochs={num_epochs}, "
@@ -360,7 +363,7 @@ def train_and_evaluate(eventograms_L23,
             f"lr={learning_rate}"
         )
     
-    run_name = (f"hs{hidden_size}_lb{lookback}_"
+    run_name = (f"th{threshold}_hs{hidden_size}_lb{lookback}_"
                 f"{neuron}_ep{num_epochs}_os{output_size}_lr{learning_rate}")
     out_dir  = out_root#os.path.join(out_root, run_name)
 
@@ -755,6 +758,7 @@ patience = 5
 # num_epochs = 100
 # #--------------------------
 parser = argparse.ArgumentParser()
+parser.add_argument("--thresholds", nargs="+", type=float, default=[0.1])
 parser.add_argument("--hidden_sizes", nargs="+", type=int, default=[10])
 parser.add_argument("--lookbacks",    nargs="+", type=int, default=[10])
 # parser.add_argument("--neurons",      nargs="+", type=str,default=["V8192"])
@@ -769,31 +773,33 @@ if os.path.isdir(args.out_root):
     shutil.rmtree(args.out_root)
 os.makedirs(args.out_root)
 
-#loop
-for hidden_size in args.hidden_sizes:
-    for lookback in args.lookbacks:
-        for output_size in args.output_sizes:
-            for learning_rate in args.lr:
-                desc = (f"hs={hidden_size} lb={lookback} "
-                        f"ep={num_epochs} os={output_size} lr={learning_rate}")
-                # neuron = "V368"  # or any other neuron you want to test
-                for nid in l23_ids_groups[:200]:  # ή όσα θες
-                    neuron = f"V{nid}"
-                    train_and_evaluate(
-                        eventograms_L23     = eventograms_L23_15_dc_data_mouse3,
-                        eventograms_L4      = eventograms_L4_15_dc_data_mouse3,
-                        neuron_groups_dict  = neuron_groups_dict,
-                        neuron_groups_dict_null = neuron_groups_dict_null,
-                        hidden_size         = hidden_size,
-                        lookback            = lookback,
-                        neuron              = neuron,  # or any other neuron you want to test
-                        num_epochs          = num_epochs,
-                        learning_rate       = learning_rate,
-                        device              = device,
-                        out_root            = args.out_root,
-                        output_size         = output_size,
-                        patience            = patience
-                    )   
+# #loop
+# for threshold in args.thresholds:
+#     for hidden_size in args.hidden_sizes:
+#         for lookback in args.lookbacks:
+#             for output_size in args.output_sizes:
+#                 for learning_rate in args.lr:
+#                     desc = (f"th={threshold} hs={hidden_size} lb={lookback} "
+#                             f"ep={num_epochs} os={output_size} lr={learning_rate}")
+#                     # neuron = "V368"  # or any other neuron you want to test
+#                     for nid in l23_ids_groups[:200]:  # ή όσα θες
+#                         neuron = f"V{nid}"
+#                         train_and_evaluate(
+#                             threshold           = threshold,
+#                             eventograms_L23     = eventograms_L23_15_dc_data_mouse3,
+#                             eventograms_L4      = eventograms_L4_15_dc_data_mouse3,
+#                             neuron_groups_dict  = neuron_groups_dict,
+#                             neuron_groups_dict_null = neuron_groups_dict_null,
+#                             hidden_size         = hidden_size,
+#                             lookback            = lookback,
+#                             neuron              = neuron,  # or any other neuron you want to test
+#                             num_epochs          = num_epochs,
+#                             learning_rate       = learning_rate,
+#                             device              = device,
+#                             out_root            = args.out_root,
+#                             output_size         = output_size,
+#                             patience            = patience
+#                         )   
 
 
 
@@ -802,45 +808,47 @@ for hidden_size in args.hidden_sizes:
 
 
 
-# # #loop
-# for hidden_size in args.hidden_sizes:
-#     for lookback in args.lookbacks:
-#         for output_size in args.output_sizes:
-#             for learning_rate in args.lr:
-#                 desc = (f"hs={hidden_size} lb={lookback} "
-#                         f"ep={num_epochs} lr={learning_rate}")
-                
-#                 # φτιάχνουμε τα partials για κάθε νευρώνα
-#                 jobs = []
-#                 for nid in l23_ids_groups[:200]:  # ή όσα θες
-#                     neuron = f"V{nid}"
+#loop
+for threshold in args.thresholds:
+    for hidden_size in args.hidden_sizes:
+        for lookback in args.lookbacks:
+            for output_size in args.output_sizes:
+                for learning_rate in args.lr:
+                    desc = (f"th={threshold} hs={hidden_size} lb={lookback} "
+                            f"ep={num_epochs} lr={learning_rate}")
+                    
+                    # φτιάχνουμε τα partials για κάθε νευρώνα
+                    jobs = []
+                    for nid in l23_ids_groups[:200]:  # ή όσα θες
+                        neuron = f"V{nid}"
 
-#                     job = partial(
-#                         train_and_evaluate,
-#                         eventograms_L23     = eventograms_L23_15_dc_data_mouse3,
-#                         eventograms_L4      = eventograms_L4_15_dc_data_mouse3,
-#                         neuron_groups_dict  = neuron_groups_dict,
-#                         neuron_groups_dict_null = neuron_groups_dict_null,
-#                         hidden_size         = hidden_size,
-#                         lookback            = lookback,
-#                         neuron              = neuron,  # or any other neuron you want to test
-#                         num_epochs          = num_epochs,
-#                         learning_rate       = learning_rate,
-#                         device              = device,
-#                         out_root            = args.out_root,
-#                         output_size         = output_size,
-#                         patience            = patience
-#                     )   
-#                     jobs.append(job)
+                        job = partial(
+                            train_and_evaluate,
+                            threshold           = threshold,
+                            eventograms_L23     = eventograms_L23_15_dc_data_mouse3,
+                            eventograms_L4      = eventograms_L4_15_dc_data_mouse3,
+                            neuron_groups_dict  = neuron_groups_dict,
+                            neuron_groups_dict_null = neuron_groups_dict_null,
+                            hidden_size         = hidden_size,
+                            lookback            = lookback,
+                            neuron              = neuron,  # or any other neuron you want to test
+                            num_epochs          = num_epochs,
+                            learning_rate       = learning_rate,
+                            device              = device,
+                            out_root            = args.out_root,
+                            output_size         = output_size,
+                            patience            = patience
+                        )   
+                        jobs.append(job)
 
-#                 # parallel map με tqdm
-#                 with ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
-#                     # executor.map θα τρέξει τα job() για κάθε νευρώνα
-#                     for _ in tqdm(executor.map(lambda fn: fn(), jobs),
-#                                     total=len(jobs),
-#                                     desc=desc,
-#                                     unit="neuron"):
-#                         pass
+                    # parallel map με tqdm
+                    with ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
+                        # executor.map θα τρέξει τα job() για κάθε νευρώνα
+                        for _ in tqdm(executor.map(lambda fn: fn(), jobs),
+                                        total=len(jobs),
+                                        desc=desc,
+                                        unit="neuron"):
+                            pass
 
 
 
