@@ -1,5 +1,6 @@
 # cmd.exe /c run_experiments.bat
 # chmod +x run_experiments.sh and ./run_experiments.sh
+# sensitivity analysis test 1 trying to fix null
 
 import random
 from collections import defaultdict
@@ -377,7 +378,8 @@ def train_and_evaluate(eventograms_L23,
     l4_ids_null = neuron_groups_dict_null.get(nid, [])
     l4_cols_null = [f"V{lid}" for lid in l4_ids_null if f"V{lid}" in eventograms_L4.columns]
     print(f"[{neuron}] using {len(l4_cols)} L4 cols")
-
+    # if len(l4_cols)==len(l4_cols_null):
+    #     return
 
     df = pd.concat([ eventograms_L23[[neuron]], eventograms_L4[l4_cols] ], axis=1)
 
@@ -390,6 +392,7 @@ def train_and_evaluate(eventograms_L23,
     print(df_null.shape)  # should be (23070, 1193) for L23 and should be (23070, 2670) for L4
     X_null = df_null
     X_null = circular_shift_df(X_null)
+    
 
     train_frac = 0.80
     val_frac   = 0.15
@@ -397,8 +400,8 @@ def train_and_evaluate(eventograms_L23,
     test_frac  = 1 - train_frac - val_frac  # = 0.05
 
     N = len(X)
-    train_end = int(N * train_frac)               # π.χ. 0.80*N
-    val_end   = int(N * (train_frac + val_frac))  # π.χ. 0.95*N
+    train_end = int(N * train_frac)               
+    val_end   = int(N * (train_frac + val_frac))  
 
     X_train = X[:train_end]
     X_val   = X[train_end:val_end]
@@ -468,6 +471,7 @@ def train_and_evaluate(eventograms_L23,
             logits = self.fc(h_last)  # fully connected layer
             return logits               # raw scores (“logits”)
     model = LSTMNetwork().to(device)
+
     torch.cuda.empty_cache()
 
     #criterion = nn.BCEWithLogitsLoss() # internally applies sigmoid + BCELoss
@@ -639,31 +643,13 @@ z_score_L234_500shifts_0_dt_data_mouse3_more_than_4_l23A_L4B = z_score_L234_500s
 z_score_L234_500shifts_0_dt_data_mouse3_more_than_4_l23A_L4B = z_score_L234_500shifts_0_dt_data_mouse3_more_than_4_l23A_L4B.reset_index(drop=True)
 
 
-neuron_groups_dict = defaultdict(set)
-for a, b in zip(z_score_L234_500shifts_0_dt_data_mouse3_more_than_4_l23A_L4B['NeuronA'], z_score_L234_500shifts_0_dt_data_mouse3_more_than_4_l23A_L4B['NeuronB']):
-    neuron_groups_dict[a].add(b)
-
-# και αν θες κανονικό dict
-neuron_groups_dict = dict(neuron_groups_dict)
-
-
-# φτιάχνουμε το null-λεξικό
-neuron_groups_dict_null = {}
-for a, true_bs in neuron_groups_dict.items():
-    k = len(true_bs)
-    # επιλέγουμε k τυχαία από όλους τους L4 εκτός των πραγματικών
-    pool = list(l4_ids - true_bs)
-    null_bs = set(random.sample(pool, k))
-    neuron_groups_dict_null[a] = null_bs
-
-# αν θες να είναι κι αυτό defaultdict(set):
-neuron_groups_dict_null = defaultdict(set, neuron_groups_dict_null)
-
 
 l4_ids_groups = z_score_L234_500shifts_0_dt_data_mouse3_more_than_4_l23A_L4B['NeuronB'].unique().tolist() 
 l23_ids_groups = z_score_L234_500shifts_0_dt_data_mouse3_more_than_4_l23A_L4B['NeuronA'].unique().tolist()
 
 
+print(f"Number of L4 neurons: {len(l4_ids_groups)}")
+print(f"Number of L23 neurons: {len(l23_ids_groups)}")
 eventograms_15_dc_data_mouse3 = pd.read_csv("../data/mouse24617_IoannisThreshold_3nz_1.5dc_full_60min.csv")
 
 
@@ -684,6 +670,57 @@ eventograms_L23_15_dc_data_mouse3 = eventograms_L234_15_dc_data_mouse3[l23_cols]
 
 print(f"eventograms_L4_15_dc_data_mouse3.shape: {eventograms_L4_15_dc_data_mouse3.shape}"   
       f"eventograms_L23_15_dc_data_mouse3.shape: {eventograms_L23_15_dc_data_mouse3.shape}"     )
+
+# turn your lists into sets once up front
+valid_as = set(l23_ids_groups)
+valid_bs = set(l4_ids_groups)
+
+neuron_groups_dict = defaultdict(set)
+for a, b in zip(z_score_L234_500shifts_0_dt_data_mouse3_more_than_4_l23A_L4B['NeuronA'], z_score_L234_500shifts_0_dt_data_mouse3_more_than_4_l23A_L4B['NeuronB']):
+    if a in valid_as and b in valid_bs:       
+        neuron_groups_dict[a].add(b)
+neuron_groups_dict = dict(neuron_groups_dict)
+
+# neuron_groups_dict_null = neuron_groups_dict.copy()
+
+# neuron_groups_dict_null = defaultdict(set)
+
+# for a in neuron_groups_dict:
+#     k = 0
+#     temp_neuron_list = []
+#     for b in neuron_groups_dict[a]:
+#         k+=1
+#         temp_neuron_list.append(b)
+#     for i in range(0, k):
+#         my_list   = list(l4_ids_groups - set(temp_neuron_list))
+#         c = np.random.choice(my_list)
+#         neuron_groups_dict_null[a].add(c)    
+# neuron_groups_dict_null = dict(neuron_groups_dict_null)
+
+
+
+# now build the null dict
+neuron_groups_dict_null = defaultdict(set)
+for a, true_bs in neuron_groups_dict.items():
+    k = len(true_bs)
+    # pool is all valid_bs except the true ones
+    pool = list(valid_bs - true_bs)
+    # pick k distinct random elements
+    picks = np.random.choice(pool, size=k, replace=False)
+    neuron_groups_dict_null[a].update(picks)
+
+neuron_groups_dict_null = dict(neuron_groups_dict_null)
+
+
+# Υπολογίζουμε το πλήθος των features για κάθε A
+sizes = {a: len(bs) for a, bs in neuron_groups_dict_null.items()}
+
+# Βρίσκουμε το A με το μέγιστο πλήθος
+max_key = max(sizes, key=sizes.get)
+max_val = sizes[max_key]
+
+print(f"Neuron A με το μέγιστο πλήθος B‐features: {max_key}")
+print(f"Max number of features: {max_val}")
 
 
 # Setting up the device for PyTorch
@@ -739,23 +776,24 @@ for hidden_size in args.hidden_sizes:
             for learning_rate in args.lr:
                 desc = (f"hs={hidden_size} lb={lookback} "
                         f"ep={num_epochs} os={output_size} lr={learning_rate}")
-                neuron = "V368"  # or any other neuron you want to test
-
-                train_and_evaluate(
-                    eventograms_L23     = eventograms_L23_15_dc_data_mouse3,
-                    eventograms_L4      = eventograms_L4_15_dc_data_mouse3,
-                    neuron_groups_dict  = neuron_groups_dict,
-                    neuron_groups_dict_null = neuron_groups_dict_null,
-                    hidden_size         = hidden_size,
-                    lookback            = lookback,
-                    neuron              = neuron,  # or any other neuron you want to test
-                    num_epochs          = num_epochs,
-                    learning_rate       = learning_rate,
-                    device              = device,
-                    out_root            = args.out_root,
-                    output_size         = output_size,
-                    patience            = patience
-                )   
+                # neuron = "V368"  # or any other neuron you want to test
+                for nid in l23_ids_groups[:200]:  # ή όσα θες
+                    neuron = f"V{nid}"
+                    train_and_evaluate(
+                        eventograms_L23     = eventograms_L23_15_dc_data_mouse3,
+                        eventograms_L4      = eventograms_L4_15_dc_data_mouse3,
+                        neuron_groups_dict  = neuron_groups_dict,
+                        neuron_groups_dict_null = neuron_groups_dict_null,
+                        hidden_size         = hidden_size,
+                        lookback            = lookback,
+                        neuron              = neuron,  # or any other neuron you want to test
+                        num_epochs          = num_epochs,
+                        learning_rate       = learning_rate,
+                        device              = device,
+                        out_root            = args.out_root,
+                        output_size         = output_size,
+                        patience            = patience
+                    )   
 
 
 
@@ -774,8 +812,9 @@ for hidden_size in args.hidden_sizes:
                 
 #                 # φτιάχνουμε τα partials για κάθε νευρώνα
 #                 jobs = []
-#                 for nid in l23_ids_groups:
+#                 for nid in l23_ids_groups[:200]:  # ή όσα θες
 #                     neuron = f"V{nid}"
+
 #                     job = partial(
 #                         train_and_evaluate,
 #                         eventograms_L23     = eventograms_L23_15_dc_data_mouse3,
