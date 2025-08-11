@@ -1,10 +1,11 @@
 @echo on
 
 python run_experiments_groups_series.py ^
-  --hidden_sizes 1 2 4 6 8 10 ^
-  --lookbacks   1 2 4 6 8 10^
+  --thresholds   0.1 ^
+  --hidden_sizes 1 ^
+  --lookbacks   1^
   --lr           0.001 ^
-  --output_size 1 2 3 4 5 6^
+  --output_size 1 ^
   --out_root     results
 
 pause

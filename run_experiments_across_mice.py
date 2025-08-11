@@ -5,8 +5,9 @@
 
 # mouse parameters
 mouse_number = 3
-mouse_code = 24617
+mouse_code = 25387 #24617 #25387
 
+from pathlib import Path
 import random
 from collections import defaultdict
 
@@ -304,7 +305,7 @@ def keep_metrics(
             train_loader_null, val_loader_null, test_loader_null,
             model, device
         )
-    threshold = get_threshold(ys_val, ys_val_probs)
+    # threshold = get_threshold(ys_val, ys_val_probs)
 
     # # 2) Get predictions using the threshold ys_train_probs, ys_val_probs, ys_test_probs, threshold
     ys_train_pred,  ys_val_pred, ys_test_pred     = get_preds(ys_train_probs, ys_val_probs, ys_test_probs, threshold)
@@ -373,7 +374,7 @@ def train_and_evaluate(threshold,
     out_dir  = out_root#os.path.join(out_root, run_name)
 
 
-    # count ones in all of eventograms_L4_15_dc_data_mouse3[[neuron]]
+    # count ones in all of eventograms_L4_15_dc_data_mouse[[neuron]]
     
     count_ones = eventograms_L23[[neuron]].sum().values[0]
 
@@ -586,106 +587,120 @@ def train_and_evaluate(threshold,
 
 #main
 #load data
-within_boundaries_data_mouse3 = pd.read_csv("../data/mouse24617_withinBoundaries_15um-no_gap.csv")
 
-L4_neurons_per_Layer_data_mouse3 = pd.read_csv("../data/mouse24617_L4_neuronIDs_15um_V1_0.01Hz.csv")
+# build paths (don’t stick them in globals)
+data_dir = Path("../data")
 
-temp_set1 = set(within_boundaries_data_mouse3["x"])
-temp_set2 = set(L4_neurons_per_Layer_data_mouse3["Neurons"])
+# ---- input files ----
+wb_path      = data_dir / f"mouse{mouse_code}_withinBoundaries_15um-no_gap.csv"
+l4_ids_path  = data_dir / f"mouse{mouse_code}_L4_neuronIDs_15um_V1_0.01Hz.csv"
+l23_ids_path = data_dir / f"mouse{mouse_code}_L23_neuronIDs_15um_V1_0.01Hz.csv"
+sttc_path    = data_dir / f"mouse{mouse_code}_IoannisThreshold_3nz_1.5dc_full_60min_500-shifts_0-dt_pairs.csv"
+evgr_path    = data_dir / f"mouse{mouse_code}_IoannisThreshold_3nz_1.5dc_full_60min.csv"
+
+
+within_boundaries_data_mouse = pd.read_csv(wb_path)
+L4_neurons_per_Layer_data_mouse = pd.read_csv(l4_ids_path)
+
+
+temp_set1 = set(within_boundaries_data_mouse["x"])
+temp_set2 = set(L4_neurons_per_Layer_data_mouse["Neurons"])
 
 temp_intersection1 = temp_set1.intersection(temp_set2)
 
-L4_neurons_per_Layer_within_boundaries_data_mouse3 = pd.DataFrame(sorted(temp_intersection1), columns=["Neuron_IDs"])
+L4_neurons_per_Layer_within_boundaries_data_mouse = pd.DataFrame(sorted(temp_intersection1), columns=["Neuron_IDs"])
 
 
-L23_neurons_per_Layer_data_mouse3 = pd.read_csv("../data/mouse24617_L23_neuronIDs_15um_V1_0.01Hz.csv")
+L23_neurons_per_Layer_data_mouse = pd.read_csv(l23_ids_path)
 
-temp_set1 = set(within_boundaries_data_mouse3.iloc[:, 0])
-temp_set2 = set(L23_neurons_per_Layer_data_mouse3.iloc[:, 0])
+temp_set1 = set(within_boundaries_data_mouse["x"])
+temp_set2 = set(L23_neurons_per_Layer_data_mouse["Neurons"])
 
 temp_intersection2 = temp_set1.intersection(temp_set2)
 
-L23_neurons_per_Layer_within_boundaries_data_mouse3 = pd.DataFrame(sorted(temp_intersection2), columns=["Neuron_IDs"])
+L23_neurons_per_Layer_within_boundaries_data_mouse = pd.DataFrame(sorted(temp_intersection2), columns=["Neuron_IDs"])
 
 
-L234_neurons_within_boundaries_data_mouse3 = pd.concat(
-    [L4_neurons_per_Layer_within_boundaries_data_mouse3,
-     L23_neurons_per_Layer_within_boundaries_data_mouse3],
-    ignore_index=True
-)
-L234_neurons_within_boundaries_data_mouse3.columns = ["Neuron_IDs"]
+L234_neurons_within_boundaries_data_mouse = pd.concat([
+    L4_neurons_per_Layer_within_boundaries_data_mouse,   # ← αλλαγή
+    L23_neurons_per_Layer_within_boundaries_data_mouse
+], ignore_index=True)
+
+L23_neurons_per_Layer_data_mouse.columns = ["Neuron_IDs"]
 
 
-l4_ids  = set(L4_neurons_per_Layer_within_boundaries_data_mouse3["Neuron_IDs"])
-l23_ids = set(L23_neurons_per_Layer_within_boundaries_data_mouse3["Neuron_IDs"])
+l4_ids  = set(L4_neurons_per_Layer_within_boundaries_data_mouse["Neuron_IDs"])
+l23_ids = set(L23_neurons_per_Layer_within_boundaries_data_mouse["Neuron_IDs"])
 
 
-
-STTC_500shifts_0_dt_data_mouse3 = pd.read_csv("../data/mouse24617_IoannisThreshold_3nz_1.5dc_full_60min_500-shifts_0-dt_pairs.csv")
+STTC_500shifts_0_dt_data_mouse = pd.read_csv(sttc_path)
 
 # make a set of the “within‐boundaries” IDs
-allowed_ids = set(L234_neurons_within_boundaries_data_mouse3["Neuron_IDs"])
+allowed_ids = set(L234_neurons_within_boundaries_data_mouse["Neuron_IDs"])
 
 # filter the STTC pairs so both ends are in that set
-STTC_L234_500shifts_0_dt_data_mouse3 = (
-    STTC_500shifts_0_dt_data_mouse3[
-        STTC_500shifts_0_dt_data_mouse3["NeuronA"].isin(allowed_ids)
-        & STTC_500shifts_0_dt_data_mouse3["NeuronB"].isin(allowed_ids)
+STTC_L234_500shifts_0_dt_data_mouse = (
+    STTC_500shifts_0_dt_data_mouse[
+        STTC_500shifts_0_dt_data_mouse["NeuronA"].isin(allowed_ids)
+        & STTC_500shifts_0_dt_data_mouse["NeuronB"].isin(allowed_ids)
     ]
     .copy()
 )
 
 # compute z-score and build new DataFrame
-z_score_L234_500shifts_0_dt_data_mouse3 = (STTC_L234_500shifts_0_dt_data_mouse3
-    .assign(z_score=(STTC_L234_500shifts_0_dt_data_mouse3['STTC'] - STTC_L234_500shifts_0_dt_data_mouse3['CtrlGrpMean']) / STTC_L234_500shifts_0_dt_data_mouse3['CtrlGrpStDev'])
+z_score_L234_500shifts_0_dt_data_mouse = (STTC_L234_500shifts_0_dt_data_mouse
+    .assign(z_score=(STTC_L234_500shifts_0_dt_data_mouse['STTC'] - STTC_L234_500shifts_0_dt_data_mouse['CtrlGrpMean']) / STTC_L234_500shifts_0_dt_data_mouse['CtrlGrpStDev'])
     [['NeuronA', 'NeuronB', 'z_score']]
 )
 
-z_score_L234_500shifts_0_dt_data_mouse3_more_than_4 = z_score_L234_500shifts_0_dt_data_mouse3[z_score_L234_500shifts_0_dt_data_mouse3['z_score'] >= 4]
+z_score_L234_500shifts_0_dt_data_mouse_more_than_4 = z_score_L234_500shifts_0_dt_data_mouse[z_score_L234_500shifts_0_dt_data_mouse['z_score'] >= 4]
 
-z_score_L234_500shifts_0_dt_data_mouse3_more_than_4 = z_score_L234_500shifts_0_dt_data_mouse3_more_than_4.reset_index(drop=True)
+z_score_L234_500shifts_0_dt_data_mouse_more_than_4 = z_score_L234_500shifts_0_dt_data_mouse_more_than_4.reset_index(drop=True)
 
-z_score_L234_500shifts_0_dt_data_mouse3_more_than_4_l23A = z_score_L234_500shifts_0_dt_data_mouse3_more_than_4[z_score_L234_500shifts_0_dt_data_mouse3_more_than_4['NeuronA'].isin(l23_ids)]
+z_score_L234_500shifts_0_dt_data_mouse_more_than_4_l23A = z_score_L234_500shifts_0_dt_data_mouse_more_than_4[z_score_L234_500shifts_0_dt_data_mouse_more_than_4['NeuronA'].isin(l23_ids)]
 
-z_score_L234_500shifts_0_dt_data_mouse3_more_than_4_l23A_L4B = z_score_L234_500shifts_0_dt_data_mouse3_more_than_4_l23A[z_score_L234_500shifts_0_dt_data_mouse3_more_than_4_l23A['NeuronB'].isin(l4_ids)]
+z_score_L234_500shifts_0_dt_data_mouse_more_than_4_l23A_L4B = z_score_L234_500shifts_0_dt_data_mouse_more_than_4_l23A[z_score_L234_500shifts_0_dt_data_mouse_more_than_4_l23A['NeuronB'].isin(l4_ids)]
 
-z_score_L234_500shifts_0_dt_data_mouse3_more_than_4_l23A_L4B = z_score_L234_500shifts_0_dt_data_mouse3_more_than_4_l23A_L4B.reset_index(drop=True)
+z_score_L234_500shifts_0_dt_data_mouse_more_than_4_l23A_L4B = z_score_L234_500shifts_0_dt_data_mouse_more_than_4_l23A_L4B.reset_index(drop=True)
 
 
 
-l4_ids_groups = z_score_L234_500shifts_0_dt_data_mouse3_more_than_4_l23A_L4B['NeuronB'].unique().tolist() 
-l23_ids_groups = z_score_L234_500shifts_0_dt_data_mouse3_more_than_4_l23A_L4B['NeuronA'].unique().tolist()
+l4_ids_groups = z_score_L234_500shifts_0_dt_data_mouse_more_than_4_l23A_L4B['NeuronB'].unique().tolist() 
+l23_ids_groups = z_score_L234_500shifts_0_dt_data_mouse_more_than_4_l23A_L4B['NeuronA'].unique().tolist()
 
 
 print(f"Number of L4 neurons: {len(l4_ids_groups)}")
 print(f"Number of L23 neurons: {len(l23_ids_groups)}")
-eventograms_15_dc_data_mouse3 = pd.read_csv("../data/mouse24617_IoannisThreshold_3nz_1.5dc_full_60min.csv")
+eventograms_15_dc_data_mouse = pd.read_csv(evgr_path)
 
 
 allowed = list(set(l4_ids_groups).union(set(l23_ids_groups)))
 
-cols = [f"V{nid}" for nid in allowed if f"V{nid}" in eventograms_15_dc_data_mouse3.columns]
+cols = [f"V{nid}" for nid in allowed if f"V{nid}" in eventograms_15_dc_data_mouse.columns]
 
-eventograms_L234_15_dc_data_mouse3 = (
-    eventograms_15_dc_data_mouse3[cols]
+eventograms_L234_15_dc_data_mouse = (
+    eventograms_15_dc_data_mouse[cols]
     .copy()
 )
 
-l4_cols  = [f"V{nid}" for nid in l4_ids  if f"V{nid}" in eventograms_L234_15_dc_data_mouse3.columns]
-l23_cols = [f"V{nid}" for nid in l23_ids if f"V{nid}" in eventograms_L234_15_dc_data_mouse3.columns]
+l4_cols  = [f"V{nid}" for nid in l4_ids  if f"V{nid}" in eventograms_L234_15_dc_data_mouse.columns]
+l23_cols = [f"V{nid}" for nid in l23_ids if f"V{nid}" in eventograms_L234_15_dc_data_mouse.columns]
+l4_cols = list(set(l4_cols))
+l23_cols = list(set(l23_cols))
 
-eventograms_L4_15_dc_data_mouse3  = eventograms_L234_15_dc_data_mouse3[l4_cols].copy()
-eventograms_L23_15_dc_data_mouse3 = eventograms_L234_15_dc_data_mouse3[l23_cols].copy()
 
-print(f"eventograms_L4_15_dc_data_mouse3.shape: {eventograms_L4_15_dc_data_mouse3.shape}"   
-      f"eventograms_L23_15_dc_data_mouse3.shape: {eventograms_L23_15_dc_data_mouse3.shape}"     )
+eventograms_L4_15_dc_data_mouse  = eventograms_L234_15_dc_data_mouse[l4_cols].copy()
+eventograms_L23_15_dc_data_mouse = eventograms_L234_15_dc_data_mouse[l23_cols].copy()
+
+print(f"eventograms_L4_15_dc_data_mouse.shape: {eventograms_L4_15_dc_data_mouse.shape}"   
+      f"eventograms_L23_15_dc_data_mouse.shape: {eventograms_L23_15_dc_data_mouse.shape}"     )
 
 # turn your lists into sets once up front
 valid_as = set(l23_ids_groups)
 valid_bs = set(l4_ids_groups)
 
 neuron_groups_dict = defaultdict(set)
-for a, b in zip(z_score_L234_500shifts_0_dt_data_mouse3_more_than_4_l23A_L4B['NeuronA'], z_score_L234_500shifts_0_dt_data_mouse3_more_than_4_l23A_L4B['NeuronB']):
+for a, b in zip(z_score_L234_500shifts_0_dt_data_mouse_more_than_4_l23A_L4B['NeuronA'], z_score_L234_500shifts_0_dt_data_mouse_more_than_4_l23A_L4B['NeuronB']):
     if a in valid_as and b in valid_bs:       
         neuron_groups_dict[a].add(b)
 neuron_groups_dict = dict(neuron_groups_dict)
@@ -715,7 +730,15 @@ for a, true_bs in neuron_groups_dict.items():
     # pool is all valid_bs except the true ones
     pool = list(valid_bs - true_bs)
     # pick k distinct random elements
-    picks = np.random.choice(pool, size=k, replace=False)
+    take = min(k, len(pool))
+    picks = np.random.choice(pool, size=take, replace=False)
+
+    # αν δεν έφτασες k, συμπλήρωσε με αντικατάσταση από το pool (ή αν είναι άδειο, από valid_bs-true_bs)
+    if take < k:
+        base = pool if len(pool) else list(valid_bs - true_bs)
+        extra = np.random.choice(base, size=k - take, replace=True)
+        picks = np.concatenate([picks, extra])
+
     neuron_groups_dict_null[a].update(picks)
 
 neuron_groups_dict_null = dict(neuron_groups_dict_null)
@@ -795,8 +818,8 @@ for threshold in args.thresholds:
                         neuron = f"V{nid}"
                         train_and_evaluate(
                             threshold           = threshold,
-                            eventograms_L23     = eventograms_L23_15_dc_data_mouse3,
-                            eventograms_L4      = eventograms_L4_15_dc_data_mouse3,
+                            eventograms_L23     = eventograms_L23_15_dc_data_mouse,
+                            eventograms_L4      = eventograms_L4_15_dc_data_mouse,
                             neuron_groups_dict  = neuron_groups_dict,
                             neuron_groups_dict_null = neuron_groups_dict_null,
                             hidden_size         = hidden_size,
@@ -834,8 +857,8 @@ for threshold in args.thresholds:
 #                         job = partial(
 #                             train_and_evaluate,
 #                             threshold           = threshold,
-#                             eventograms_L23     = eventograms_L23_15_dc_data_mouse3,
-#                             eventograms_L4      = eventograms_L4_15_dc_data_mouse3,
+#                             eventograms_L23     = eventograms_L23_15_dc_data_mouse,
+#                             eventograms_L4      = eventograms_L4_15_dc_data_mouse,
 #                             neuron_groups_dict  = neuron_groups_dict,
 #                             neuron_groups_dict_null = neuron_groups_dict_null,
 #                             hidden_size         = hidden_size,
