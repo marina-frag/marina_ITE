@@ -7,7 +7,7 @@ from matplotlib.ticker import MaxNLocator
 import matplotlib.pyplot as plt
 import plot_utils as pu
 
-df = pd.read_csv("statistics/sensitivity_analysis_test2.csv")
+df = pd.read_csv("statistics/sensitivity_analysis_test3.csv")
 df['output_size'] = df['run'].str.extract(r'os(\d+)_').astype(int)
 
 metrics = ["Accuracy","Precision","Recall","Specificity","F1","AP","ROC AUC"]
