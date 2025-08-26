@@ -6,8 +6,26 @@ import os
 from scipy import stats
 
 
-csv_path = "statistics/all_runs_summary_series_corrected.csv"
+csv_path = "statistics/destribution25387.csv"
 df = pd.read_csv(csv_path)
+
+# --- ΝΕΟ: καθάρισε/ομογενοποίησε τα column names ---
+def _norm_col(c: str) -> str:
+    return (
+        c.replace('\ufeff', '')        # BOM
+         .replace('\xa0', ' ')         # non-breaking spaces
+         .strip()
+    )
+
+df.columns = [' '.join(_norm_col(c).split()) for c in df.columns]  # συμπίεση πολλαπλών κενών
+
+# (προαιρετικό) aliases → ίδιο επίσημο όνομα
+ALIASES = {
+    'pearson correlation': 'Pearson Correlation',
+    'pearson_corr': 'Pearson Correlation',
+    'pearson': 'Pearson Correlation',
+}
+df = df.rename(columns={c: ALIASES.get(c.lower(), c) for c in df.columns})
 
 output_path = "results"
 os.makedirs(output_path, exist_ok=True)  # ensure output directory exists
@@ -87,7 +105,7 @@ def plot_metric(metric_real, metric_null, metric_name, split, output_path):
     plt.close(fig)
 
 
-metrics = ["Accuracy","Precision","Recall","Specificity","F1","AP","ROC AUC"]
+metrics = ["Accuracy", "Recall", "Specificity", "F1", "Pearson Correlation"]
 pairs   = [("Train","Null Train"), ("Val","Null Val"), ("Test","Null Test")]
 
 

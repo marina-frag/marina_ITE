@@ -8,10 +8,10 @@ import matplotlib.pyplot as plt
 import plot_utils as pu
 
 # ── 1) Load & extract hidden_size
-df = pd.read_csv("statistics/sensitivity_analysis_test1.csv")
+df = pd.read_csv("../statistics/hidden_sizes25387.csv")
 df['hidden_size'] = df['run'].str.extract(r'hs(\d+)_').astype(int)
 
-metrics = ["Accuracy","Precision","Recall","Specificity","F1","AP","ROC AUC"]
+metrics = ["Accuracy", "Recall", "Specificity", "F1", "Pearson Correlation"]
 real_splits = ["Train", "Val", "Test"]
 
 # ── 2) Aggregate mean & SEM by hidden_size + split

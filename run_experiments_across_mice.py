@@ -5,7 +5,11 @@
 
 # mouse parameters
 mouse_number = 3
-mouse_code = 25387 #24617 #25387
+mouse_code = 24705
+
+
+from scipy.stats import pearsonr 
+
 
 from pathlib import Path
 import random
@@ -129,17 +133,47 @@ def compute_metrics(y_true, y_pred, y_probs):
     y_probs_flat = y_probs.flatten()
 
     acc  = accuracy_score(y_true_flat, y_pred_flat)            # no zero_division here
-    prec = precision_score(y_true_flat, y_pred_flat, zero_division=0)
     rec  = recall_score   (y_true_flat, y_pred_flat, zero_division=0)
     f1   = f1_score       (y_true_flat, y_pred_flat, zero_division=0)
     # threshold‐independent
-    ap   = average_precision_score(y_true_flat, y_probs_flat)
-    auc  = roc_auc_score(y_true_flat, y_probs_flat)
     # specificity
-    tn, fp, fn, tp = confusion_matrix(y_true_flat, y_pred_flat).ravel()
+    tn, fp, fn, tp = confusion_matrix(y_true_flat, y_pred_flat, labels=[0, 1]).ravel()
     spec = tn / (tn + fp + 1e-8)
-    return acc, prec, rec, spec, f1, ap, auc
 
+    
+    # Pearson should use continuous scores, not hard labels
+    try:
+        pear = float(pearsonr(y_true_flat, y_probs_flat)[0])
+    except Exception:
+        pear = np.nan  # e.g., constant input
+
+    return acc, rec, spec, f1, pear
+
+def majority_reduce(y_true, y_probs, threshold, tie_policy="strict"):
+    """
+    y_true: (B, T) 0/1
+    y_probs: (B, T) ∈ [0,1]
+    threshold: για να binarize τα probs → y_pred_bin
+    tie_policy: "strict" => > T/2 (ισοπαλία -> 0), "ceil" => >= ceil(T/2) (ισοπαλία -> 1)
+    """
+    # σε numpy
+    y_true = y_true.detach().cpu().numpy() if hasattr(y_true, "detach") else np.asarray(y_true)
+    y_probs = np.asarray(y_probs)
+
+    y_pred_bin = (y_probs > threshold).astype(int)
+
+    T = y_true.shape[1]
+    need = (T/2) if tie_policy=="strict" else np.ceil(T/2)
+
+    y_true_maj = (y_true.sum(axis=1) >  need).astype(int) if tie_policy=="strict" else \
+                 (y_true.sum(axis=1) >= need).astype(int)
+
+    y_pred_maj = (y_pred_bin.sum(axis=1) >  need).astype(int) if tie_policy=="strict" else \
+                 (y_pred_bin.sum(axis=1) >= need).astype(int)
+
+    # score για AP/AUC: ένα scalar ανά δείγμα (π.χ. ο μέσος των probs)
+    y_score_maj = y_probs.mean(axis=1)
+    return y_true_maj, y_pred_maj, y_score_maj
 
 def get_logits_probs(ys_train, ys_val, ys_test, train_loader, val_loader, test_loader, model, device):
     ys_train_true = ys_train
@@ -161,9 +195,9 @@ def get_logits_probs(ys_train, ys_val, ys_test, train_loader, val_loader, test_l
             ys_test_logits.append( model(xb.to(device)).cpu())
 
     # 2) Stack into single tensors/arrays
-    ys_train_logits = torch.cat(ys_train_logits, dim=0).numpy().flatten()
-    ys_val_logits   = torch.cat(ys_val_logits,   dim=0).numpy().flatten()
-    ys_test_logits  = torch.cat(ys_test_logits,  dim=0).numpy().flatten()
+    ys_train_logits = torch.cat(ys_train_logits, dim=0).numpy()#.flatten()
+    ys_val_logits   = torch.cat(ys_val_logits,   dim=0).numpy()#.flatten()
+    ys_test_logits  = torch.cat(ys_test_logits,  dim=0).numpy()#.flatten()
 
 
     # 4) Convert to probabilities
@@ -281,6 +315,78 @@ def sequences_to_tensors(Xs_train, ys_train, Xs_val, ys_val, Xs_test, ys_test, X
     return Xs_train, ys_train, Xs_val, ys_val, Xs_test, ys_test, Xs_null_train, Xs_null_val, Xs_null_test
 
 
+# def keep_preds(
+#     ys_train, ys_val, ys_test,
+#     train_loader, val_loader, test_loader,
+#     ys_train_null, ys_val_null, ys_test_null,
+#     train_loader_null, val_loader_null, test_loader_null,
+#     out_root, run_name, model, device
+# ):
+    
+#     # 1) Get logits and probabilities for true & null sets
+#     ys_train_logits, ys_val_logits, ys_test_logits, \
+#     ys_train_probs,  ys_val_probs,  ys_test_probs = \
+#         get_logits_probs(
+#             ys_train, ys_val, ys_test,
+#             train_loader, val_loader, test_loader,
+#             model, device
+#         )
+#     ys_train_logits_null, ys_val_logits_null, ys_test_logits_null, \
+#     ys_train_probs_null,  ys_val_probs_null,  ys_test_probs_null = \
+#         get_logits_probs(
+#             ys_train_null, ys_val_null, ys_test_null,
+#             train_loader_null, val_loader_null, test_loader_null,
+#             model, device
+#         )
+#     # threshold = get_threshold(ys_val, ys_val_probs)
+    
+#     # Πλειοψηφία για κάθε split
+#     yt_tr_maj, yp_tr_maj, ys_tr_maj = majority_reduce(ys_train, ys_train_probs, threshold, tie_policy="strict")
+#     yt_val_maj, yp_val_maj, ys_val_maj = majority_reduce(ys_val,   ys_val_probs, threshold, tie_policy="strict")
+#     yt_te_maj,  yp_te_maj,  ys_te_maj  = majority_reduce(ys_test,  ys_test_probs,  threshold, tie_policy="strict")
+
+#     yt_trn_maj, yp_trn_maj, ys_trn_maj = majority_reduce(ys_train, ys_train_probs_null, threshold, "strict")
+#     yt_valn_maj, yp_valn_maj, ys_valn_maj = majority_reduce(ys_val, ys_val_probs_null, threshold, "strict")
+#     yt_ten_maj,  yp_ten_maj,  ys_ten_maj  = majority_reduce(ys_test, ys_test_probs_null, threshold, "strict")
+
+#     # ys_train_pred,  ys_val_pred, ys_test_pred     = get_preds(ys_train_probs, ys_val_probs, ys_test_probs, threshold)
+#     # ys_train_pred_null, ys_val_pred_null, ys_test_pred_null = get_preds(ys_train_probs_null, ys_val_probs_null, ys_test_probs_null, threshold)
+#     # # ys_train_pred,  ys_val_pred, ys_test_pred     = get_stat_preds(ys_train, ys_train_probs, ys_val,   ys_val_probs, ys_test,  ys_test_probs)
+#     # # ys_train_pred_null, ys_val_pred_null, ys_test_pred_null = get_stat_preds(ys_train, ys_train_probs_null, ys_val,   ys_val_probs_null, ys_test,  ys_test_probs_null)
+
+#     save yt_tr_maj,  yp_tr_maj,  ys_tr_maj, yt_val_maj, yp_val_maj, ys_val_maj, yt_te_maj,  yp_te_maj,  ys_te_maj, yt_trn_maj, yp_trn_maj, ys_trn_maj, yt_valn_maj, yp_valn_maj, ys_valn_maj, yt_ten_maj,  yp_ten_maj,  ys_ten_maj in one csv
+
+# def get_metrics(yt_tr_maj,  yp_tr_maj,  ys_tr_maj, yt_val_maj, yp_val_maj, ys_val_maj, yt_te_maj,  yp_te_maj,  ys_te_maj, yt_trn_maj, yp_trn_maj, ys_trn_maj, yt_valn_maj, yp_valn_maj, ys_valn_maj, yt_ten_maj,  yp_ten_maj,  ys_ten_maj):
+    
+#     train_metrics = compute_metrics(yt_tr_maj,  yp_tr_maj,  ys_tr_maj)
+#     val_metrics   = compute_metrics(yt_val_maj, yp_val_maj, ys_val_maj)
+#     test_metrics  = compute_metrics(yt_te_maj,  yp_te_maj,  ys_te_maj)
+#     null_train_metrics = compute_metrics(yt_trn_maj, yp_trn_maj, ys_trn_maj)
+#     null_val_metrics   = compute_metrics(yt_valn_maj, yp_valn_maj, ys_valn_maj)
+#     null_test_metrics  = compute_metrics(yt_ten_maj,  yp_ten_maj,  ys_ten_maj)
+
+#     # Build a single summary DataFrame
+#     metrics_names = ["Accuracy", "Recall", "Specificity", "F1", "Pearson Corelation"]
+#     splits = ["Train", "Val", "Test", "Null Train", "Null Val", "Null Test"]
+#     all_vals = [
+#         train_metrics, val_metrics, test_metrics,
+#         null_train_metrics, null_val_metrics, null_test_metrics
+#     ]
+
+#     df_metrics = pd.DataFrame(
+#         [[run_name, split] + list(vals) for split, vals in zip(splits, all_vals)],
+#         columns=["run", "split"] + metrics_names
+#     )
+
+#     # Append to the master summary file
+#     summary_path = os.path.join(out_root, "all_runs_summary.csv")
+#     if not os.path.exists(summary_path):
+#         df_metrics.to_csv(summary_path, index=False)
+#     else:
+#         df_metrics.to_csv(summary_path, mode="a", header=False, index=False)
+
+#     print(f"Finished {run_name}")
+
 
 def keep_metrics(
     ys_train, ys_val, ys_test,
@@ -306,23 +412,32 @@ def keep_metrics(
             model, device
         )
     # threshold = get_threshold(ys_val, ys_val_probs)
+    
+    # Πλειοψηφία για κάθε split
+    yt_tr_maj, yp_tr_maj, ys_tr_maj = majority_reduce(ys_train, ys_train_probs, threshold, tie_policy="strict")
+    yt_val_maj, yp_val_maj, ys_val_maj = majority_reduce(ys_val,   ys_val_probs, threshold, tie_policy="strict")
+    yt_te_maj,  yp_te_maj,  ys_te_maj  = majority_reduce(ys_test,  ys_test_probs,  threshold, tie_policy="strict")
 
-    # # 2) Get predictions using the threshold ys_train_probs, ys_val_probs, ys_test_probs, threshold
-    ys_train_pred,  ys_val_pred, ys_test_pred     = get_preds(ys_train_probs, ys_val_probs, ys_test_probs, threshold)
-    ys_train_pred_null, ys_val_pred_null, ys_test_pred_null = get_preds(ys_train_probs_null, ys_val_probs_null, ys_test_probs_null, threshold)
-    # ys_train_pred,  ys_val_pred, ys_test_pred     = get_stat_preds(ys_train, ys_train_probs, ys_val,   ys_val_probs, ys_test,  ys_test_probs)
-    # ys_train_pred_null, ys_val_pred_null, ys_test_pred_null = get_stat_preds(ys_train, ys_train_probs_null, ys_val,   ys_val_probs_null, ys_test,  ys_test_probs_null)
+    yt_trn_maj, yp_trn_maj, ys_trn_maj = majority_reduce(ys_train, ys_train_probs_null, threshold, "strict")
+    yt_valn_maj, yp_valn_maj, ys_valn_maj = majority_reduce(ys_val, ys_val_probs_null, threshold, "strict")
+    yt_ten_maj,  yp_ten_maj,  ys_ten_maj  = majority_reduce(ys_test, ys_test_probs_null, threshold, "strict")
 
-    # 3) Compute metrics for each split
-    train_metrics      = compute_metrics(ys_train, ys_train_pred, ys_train_probs)
-    val_metrics        = compute_metrics(ys_val,   ys_val_pred,   ys_val_probs)
-    test_metrics       = compute_metrics(ys_test,  ys_test_pred,  ys_test_probs)
-    null_train_metrics = compute_metrics(ys_train, ys_train_pred_null, ys_train_probs_null)
-    null_val_metrics   = compute_metrics(ys_val,   ys_val_pred_null,   ys_val_probs_null)
-    null_test_metrics  = compute_metrics(ys_test,  ys_test_pred_null,  ys_test_probs_null)
+    # ys_train_pred,  ys_val_pred, ys_test_pred     = get_preds(ys_train_probs, ys_val_probs, ys_test_probs, threshold)
+    # ys_train_pred_null, ys_val_pred_null, ys_test_pred_null = get_preds(ys_train_probs_null, ys_val_probs_null, ys_test_probs_null, threshold)
+    # # ys_train_pred,  ys_val_pred, ys_test_pred     = get_stat_preds(ys_train, ys_train_probs, ys_val,   ys_val_probs, ys_test,  ys_test_probs)
+    # # ys_train_pred_null, ys_val_pred_null, ys_test_pred_null = get_stat_preds(ys_train, ys_train_probs_null, ys_val,   ys_val_probs_null, ys_test,  ys_test_probs_null)
 
-    # 4) Build a single summary DataFrame
-    metrics_names = ["Accuracy", "Precision", "Recall", "Specificity", "F1", "AP", "ROC AUC"]
+
+    
+    train_metrics = compute_metrics(yt_tr_maj,  yp_tr_maj,  ys_tr_maj)
+    val_metrics   = compute_metrics(yt_val_maj, yp_val_maj, ys_val_maj)
+    test_metrics  = compute_metrics(yt_te_maj,  yp_te_maj,  ys_te_maj)
+    null_train_metrics = compute_metrics(yt_trn_maj, yp_trn_maj, ys_trn_maj)
+    null_val_metrics   = compute_metrics(yt_valn_maj, yp_valn_maj, ys_valn_maj)
+    null_test_metrics  = compute_metrics(yt_ten_maj,  yp_ten_maj,  ys_ten_maj)
+
+    # Build a single summary DataFrame
+    metrics_names = ["Accuracy", "Recall", "Specificity", "F1", "Pearson Correlation"]
     splits = ["Train", "Val", "Test", "Null Train", "Null Val", "Null Test"]
     all_vals = [
         train_metrics, val_metrics, test_metrics,
@@ -334,7 +449,7 @@ def keep_metrics(
         columns=["run", "split"] + metrics_names
     )
 
-    # 5) Append to the master summary file
+    # Append to the master summary file
     summary_path = os.path.join(out_root, "all_runs_summary.csv")
     if not os.path.exists(summary_path):
         df_metrics.to_csv(summary_path, index=False)
@@ -415,34 +530,71 @@ def train_and_evaluate(threshold,
     X_train = X[:train_end]
     X_val   = X[train_end:val_end]
     X_test  = X[val_end:]
+    # CHAT HERE PLEASE HELP
+    # y_train = y_train undersampled so that #1 = #0 
+    # X_train = X_train synchronised with new y_train
 
     y_train = y[:train_end]
     y_val   = y[train_end:val_end]
-    y_test  = y[val_end:]
-
-    print(f"X_train.shape: {X_train.shape}, y_train.shape: {y_train.shape}")
-    print(f"X_val.shape:   {X_val.shape},   y_val.shape:   {y_val.shape}")
-    print(f"X_test.shape:  {X_test.shape},  y_test.shape:  {y_test.shape}")
-
-    Xs_train, ys_train = create_sequences(X_train, y_train, lookback, output_size)
-    Xs_val, ys_val = create_sequences(X_val, y_val, lookback, output_size)
-    Xs_test, ys_test = create_sequences(X_test, y_test, lookback, output_size)
-    #(for Xs_train.shape 23070 is all frames we use train_fac * 23070 so 18456 frames as training)
-
-
-    print(f"Xs_train.shape: {Xs_train.shape}, ys_train.shape: {ys_train.shape}")
-    print(f"Xs_val.shape:   {Xs_val.shape},   ys_val.shape:   {ys_val.shape}")
-    print(f"Xs_test.shape:  {Xs_test.shape},  ys_test.shape:  {ys_test.shape}")
+    y_test  = y[val_end:] 
 
     X_null_train = X_null[:train_end]
     X_null_val   = X_null[train_end:val_end]
     X_null_test  = X_null[val_end:]
 
+    ones  = int(y_train.sum())
+    zeros = int((y_train == 0).sum())
 
-    Xs_null_train, ys_train = create_sequences(X_null_train, y_train, lookback, output_size)
-    Xs_null_val, ys_val = create_sequences(X_null_val, y_val, lookback, output_size)
-    Xs_null_test, ys_test = create_sequences(X_null_test, y_test, lookback, output_size)
+    print(f"y_train.shape: {y_train.shape}")
+    print(f"X_train.shape: {X_train.shape}")
+    print(f"X_null_train.shape:{X_null_train.shape}")
 
+    if ones == 0 or zeros == 0:
+        print("[WARN] Skipping undersampling (no positives or no negatives in train).")
+    else:
+        pos_idx = np.flatnonzero(y_train.values == 1)   # keep ALL positives - nonzero: return the indices of the non-zero elements of the input array
+        neg_idx = np.flatnonzero(y_train.values == 0)   # randomly keep as many negatives as positives
+
+        keep_neg = np.random.choice(neg_idx, size=min(len(neg_idx), len(pos_idx)), replace=False)
+        keep_idx = np.sort(np.concatenate([pos_idx, keep_neg]))
+
+        # Apply the SAME selection to all three so they stay aligned
+        X_train = X_train.iloc[keep_idx]
+        y_train = y_train.iloc[keep_idx]
+
+        # If X_null_train is a DataFrame:
+        # X_null_train = X_null_train.iloc[keep_idx]
+        # If X_null_train is a numpy array:
+        X_null_train = X_null_train.iloc[keep_idx]
+
+        # Optional: tidy up indices
+        if hasattr(X_train, "reset_index"):
+            X_train = X_train.reset_index(drop=True)
+        if hasattr(y_train, "reset_index"):
+            y_train = y_train.reset_index(drop=True)
+        # For numpy, nothing to reset.
+
+    print(f"y_train.shape: {y_train.shape}")
+    print(f"X_train.shape: {X_train.shape}")
+    print(f"X_null_train.shape:{X_null_train.shape}")
+
+    
+    
+    Xs_train, ys_train = create_sequences(X_train, y_train, lookback, output_size)
+    Xs_val, ys_val = create_sequences(X_val, y_val, lookback, output_size)
+    Xs_test, ys_test = create_sequences(X_test, y_test, lookback, output_size)
+    #(for Xs_train.shape 23070 is all frames we use train_fac * 23070 so 18456 frames as training)
+    Xs_null_train, ys_null_train = create_sequences(X_null_train, y_train, lookback, output_size)
+    Xs_null_val,   ys_null_val   = create_sequences(X_null_val,   y_val,   lookback, output_size)
+    Xs_null_test,  ys_null_test  = create_sequences(X_null_test,  y_test,  lookback, output_size)
+
+    print(f"Xs_train.shape: {Xs_train.shape}, ys_train.shape: {ys_train.shape}")
+    print(f"Xs_val.shape:   {Xs_val.shape},   ys_val.shape:   {ys_val.shape}")
+    print(f"Xs_test.shape:  {Xs_test.shape},  ys_test.shape:  {ys_test.shape}")
+
+    print(f"Xs_null_train.shape: {Xs_train.shape}, ys_null_train.shape: {ys_train.shape}")
+    print(f"Xs_null_val.shape:   {Xs_val.shape},   ys_null_val.shape:   {ys_val.shape}")
+    print(f"Xs_null_test.shape:  {Xs_test.shape},  ys_null_test.shape:  {ys_test.shape}")
     #return
 
     Xs_train, ys_train, Xs_val, ys_val, Xs_test, ys_test, Xs_null_train, Xs_null_val, Xs_null_test = sequences_to_tensors(
@@ -453,6 +605,9 @@ def train_and_evaluate(threshold,
     print(f"Xs_val.shape:   {Xs_val.shape},   ys_val.shape:   {ys_val.shape}")
     print(f"Xs_test.shape:  {Xs_test.shape},  ys_test.shape:  {ys_test.shape}")
 
+    print(f"Xs_null_train.shape: {Xs_train.shape}, ys_null_train.shape: {ys_train.shape}")
+    print(f"Xs_null_val.shape:   {Xs_val.shape},   ys_null_val.shape:   {ys_val.shape}")
+    print(f"Xs_null_test.shape:  {Xs_test.shape},  ys_null_test.shape:  {ys_test.shape}")
 
     train_loader, val_loader, test_loader, train_loader_null, val_loader_null, test_loader_null = create_datasets(
         Xs_train, ys_train, Xs_val, ys_val, Xs_test, ys_test, Xs_null_train, Xs_null_val, Xs_null_test)
@@ -582,6 +737,7 @@ def train_and_evaluate(threshold,
         ys_train, ys_val, ys_test, train_loader_null, val_loader_null, test_loader_null,
         out_dir, run_name, model, device
     )
+    
 
 
 
@@ -685,8 +841,8 @@ eventograms_L234_15_dc_data_mouse = (
 
 l4_cols  = [f"V{nid}" for nid in l4_ids  if f"V{nid}" in eventograms_L234_15_dc_data_mouse.columns]
 l23_cols = [f"V{nid}" for nid in l23_ids if f"V{nid}" in eventograms_L234_15_dc_data_mouse.columns]
-l4_cols = list(set(l4_cols))
-l23_cols = list(set(l23_cols))
+l4_cols = list(sorted(set(l4_cols)))
+l23_cols = list(sorted(set(l23_cols)))
 
 
 eventograms_L4_15_dc_data_mouse  = eventograms_L234_15_dc_data_mouse[l4_cols].copy()
@@ -790,7 +946,7 @@ patience = 5
 
 # #--------------------------
 parser = argparse.ArgumentParser()
-parser.add_argument("--thresholds", nargs="+", type=float, default=[0.1])
+parser.add_argument("--thresholds", nargs="+", type=float, default=[0.5])
 parser.add_argument("--hidden_sizes", nargs="+", type=int, default=[4])
 parser.add_argument("--lookbacks",    nargs="+", type=int, default=[4])
 # parser.add_argument("--neurons",      nargs="+", type=str,default=["V8192"])
@@ -805,41 +961,6 @@ if os.path.isdir(args.out_root):
     shutil.rmtree(args.out_root)
 os.makedirs(args.out_root)
 
-#loop
-for threshold in args.thresholds:
-    for hidden_size in args.hidden_sizes:
-        for lookback in args.lookbacks:
-            for output_size in args.output_sizes:
-                for learning_rate in args.lr:
-                    desc = (f"th={threshold} hs={hidden_size} lb={lookback} "
-                            f"ep={num_epochs} os={output_size} lr={learning_rate}")
-                    # neuron = "V368"  # or any other neuron you want to test
-                    for nid in l23_ids_groups[:200]:  # ή όσα θες
-                        neuron = f"V{nid}"
-                        train_and_evaluate(
-                            threshold           = threshold,
-                            eventograms_L23     = eventograms_L23_15_dc_data_mouse,
-                            eventograms_L4      = eventograms_L4_15_dc_data_mouse,
-                            neuron_groups_dict  = neuron_groups_dict,
-                            neuron_groups_dict_null = neuron_groups_dict_null,
-                            hidden_size         = hidden_size,
-                            lookback            = lookback,
-                            neuron              = neuron,  # or any other neuron you want to test
-                            num_epochs          = num_epochs,
-                            learning_rate       = learning_rate,
-                            device              = device,
-                            out_root            = args.out_root,
-                            output_size         = output_size,
-                            patience            = patience
-                        )   
-
-
-
-
-# multithreding code 
-
-
-
 # #loop
 # for threshold in args.thresholds:
 #     for hidden_size in args.hidden_sizes:
@@ -847,15 +968,11 @@ for threshold in args.thresholds:
 #             for output_size in args.output_sizes:
 #                 for learning_rate in args.lr:
 #                     desc = (f"th={threshold} hs={hidden_size} lb={lookback} "
-#                             f"ep={num_epochs} lr={learning_rate}")
-                    
-#                     # φτιάχνουμε τα partials για κάθε νευρώνα
-#                     jobs = []
-#                     for nid in l23_ids_groups[:200]:  # ή όσα θες
+#                             f"ep={num_epochs} os={output_size} lr={learning_rate}")
+#                     # neuron = "V368"  # or any other neuron you want to test
+#                     for nid in l23_ids_groups[:100]:  # ή όσα θες
 #                         neuron = f"V{nid}"
-
-#                         job = partial(
-#                             train_and_evaluate,
+#                         train_and_evaluate(
 #                             threshold           = threshold,
 #                             eventograms_L23     = eventograms_L23_15_dc_data_mouse,
 #                             eventograms_L4      = eventograms_L4_15_dc_data_mouse,
@@ -871,16 +988,55 @@ for threshold in args.thresholds:
 #                             output_size         = output_size,
 #                             patience            = patience
 #                         )   
-#                         jobs.append(job)
 
-#                     # parallel map με tqdm
-#                     with ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
-#                         # executor.map θα τρέξει τα job() για κάθε νευρώνα
-#                         for _ in tqdm(executor.map(lambda fn: fn(), jobs),
-#                                         total=len(jobs),
-#                                         desc=desc,
-#                                         unit="neuron"):
-#                             pass
+
+
+
+# multithreding code 
+
+
+
+#loop
+for threshold in args.thresholds:
+    for hidden_size in args.hidden_sizes:
+        for lookback in args.lookbacks:
+            for output_size in args.output_sizes:
+                for learning_rate in args.lr:
+                    desc = (f"th={threshold} hs={hidden_size} lb={lookback} "
+                            f"ep={num_epochs} lr={learning_rate}")
+                    
+                    # φτιάχνουμε τα partials για κάθε νευρώνα
+                    jobs = []
+                    for nid in l23_ids_groups[:100]:  # ή όσα θες
+                        neuron = f"V{nid}"
+
+                        job = partial(
+                            train_and_evaluate,
+                            threshold           = threshold,
+                            eventograms_L23     = eventograms_L23_15_dc_data_mouse,
+                            eventograms_L4      = eventograms_L4_15_dc_data_mouse,
+                            neuron_groups_dict  = neuron_groups_dict,
+                            neuron_groups_dict_null = neuron_groups_dict_null,
+                            hidden_size         = hidden_size,
+                            lookback            = lookback,
+                            neuron              = neuron,  # or any other neuron you want to test
+                            num_epochs          = num_epochs,
+                            learning_rate       = learning_rate,
+                            device              = device,
+                            out_root            = args.out_root,
+                            output_size         = output_size,
+                            patience            = patience
+                        )   
+                        jobs.append(job)
+
+                    # parallel map με tqdm
+                    with ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
+                        # executor.map θα τρέξει τα job() για κάθε νευρώνα
+                        for _ in tqdm(executor.map(lambda fn: fn(), jobs),
+                                        total=len(jobs),
+                                        desc=desc,
+                                        unit="neuron"):
+                            pass
 
 
 

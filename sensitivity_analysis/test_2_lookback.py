@@ -7,10 +7,11 @@ from matplotlib.ticker import MaxNLocator
 import matplotlib.pyplot as plt
 import plot_utils as pu
 
-df = pd.read_csv("statistics/sensitivity_analysis_test2.csv")
+df = pd.read_csv("statistics/lookback25341.csv")
 df['lookback'] = df['run'].str.extract(r'lb(\d+)_').astype(int)
 
-metrics = ["Accuracy","Precision","Recall","Specificity","F1","AP","ROC AUC"]
+metrics = ["Accuracy", "Recall", "Specificity", "F1", "Pearson Correlation"]
+
 real_splits = ["Train", "Val", "Test"]
 
 
